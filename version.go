@@ -1,9 +1,6 @@
 package levigo
 
-/*
-#cgo LDFLAGS: -lleveldb
-#include "leveldb/c.h"
-*/
+// #include "leveldb/c.h"
 import "C"
 
 func GetLevelDBMajorVersion() int {
