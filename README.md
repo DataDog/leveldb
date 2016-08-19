@@ -1,7 +1,8 @@
-# levigo
+# LevelDB
 
-levigo is a Go wrapper for LevelDB. This fork makes levigo go-gettable by
-including the C++ source for LevelDB, and building it with the Go code.
+A Go wrapper for LevelDB, forked from jmhodges/levigo. This fork makes levigo
+go-gettable by including the C++ source for LevelDB, and building it with the Go
+code.
 
 This package currently includes LevelDB 1.19, and supports Linux and OS X.
 It should work on Go 1.5 or greater.
@@ -17,14 +18,14 @@ This package supports Linux and OS X.
 
 You'll need gcc and g++. Then:
 
-`go get github.com/elijahandrews/levigo`
+`go get github.com/DataDog/leveldb`
 
 This will take a long time as it compiles the LevelDB source code along with the
 Go library.
 
 To avoid waiting for compilation every time you want to build your project, you can run:
 
-`go install github.com/elijahandrews/levigo`
+`go install github.com/DataDog/leveldb`
 
 ## Updating Vendored LevelDB
 
@@ -54,4 +55,4 @@ library. This seems like a pain in the ass, but remember that you'll have the
 LevelDB C API available to your in your client package when you import levigo.
 
 An example of writing your own Comparator can be found in
-<https://github.com/jmhodges/levigo/blob/master/examples>.
+<https://github.com/DataDog/leveldb/blob/master/examples>.
