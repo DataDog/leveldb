@@ -4,6 +4,7 @@ levigo is a Go wrapper for LevelDB. This fork makes levigo go-gettable by
 including the C++ source for LevelDB, and building it with the Go code.
 
 This package currently includes LevelDB 1.19, and supports Linux and OS X.
+It should work on Go 1.5 or greater.
 
 The API has been godoc'ed and [is available on the
 web](http://godoc.org/github.com/jmhodges/levigo).
