@@ -3,7 +3,7 @@
 levigo is a Go wrapper for LevelDB. This fork makes levigo go-gettable by
 including the C++ source for LevelDB, and building it with the Go code.
 
-This package currently includes LevelDB 1.19, and only supports Linux.
+This package currently includes LevelDB 1.19, and supports Linux and OS X.
 
 The API has been godoc'ed and [is available on the
 web](http://godoc.org/github.com/jmhodges/levigo).
@@ -12,7 +12,7 @@ Questions answered at `golang-nuts@googlegroups.com`.
 
 ## Building
 
-This package (likely) only works on Linux.
+This package supports Linux and OS X.
 
 You'll need gcc and g++. Then:
 
@@ -24,6 +24,27 @@ Go library.
 To avoid waiting for compilation every time you want to build your project, you can run:
 
 `go install github.com/elijahandrews/levigo`
+
+## Updating Vendored LevelDB
+
+The embedded LevelDB source code is located in `vendor/leveldb`. In order to get
+`go build` to compile LevelDB, we symlink the required LevelDB source files to
+the root directory of the project. These symlinks are prefixed with `vendor_`.
+
+To change the embedded version of LevelDB, do the following:
+
+1. `rm vendor_*.cc`
+1. Replace `vendor/leveldb` with the source code of the desired version of LevelDB
+1. On Linux, run `./vendor/leveldb/build_detect_platform linux.mk build_flags`
+1. On OS X, run `./vendor/leveldb/build_detect_platform darwin.mk build_flags`
+1. `cat build_flags/*`, take a quick look at the new compiler and linker flags
+   and see if there are any flags we're missing in `cgo_flags_*.go`. If so, add
+   them.
+1. Create symlinks to the new source files:
+```
+for sf in $(make source_files); do ln -s vendor/leveldb/$sf $(echo vendor_$sf | sed s,/,_,g); done
+```
+1. On OS X and Linux, run `go build` and verify that everything compiles.
 
 ## Caveats
 
