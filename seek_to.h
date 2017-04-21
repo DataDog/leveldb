@@ -6,6 +6,8 @@
 typedef struct {
     unsigned char valid;
     unsigned char equal;
+    const char* val_data;
+    size_t val_len;
 } SeekResult;
 
 // Seek the given iterator to the key and return a result.
