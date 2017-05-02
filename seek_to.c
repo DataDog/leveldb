@@ -27,13 +27,13 @@ SeekResult leveldb_iter_seek_to(leveldb_iterator_t* iter, const char* k, size_t 
 unsigned char leveldb_iter_exists(leveldb_iterator_t* iter, const char* k, size_t klen) {
     leveldb_iter_seek(iter, k, klen);
 
-	unsigned char exists = leveldb_iter_valid(iter);
-	if (exists == 0) {
-		return 0;
-	}
+    unsigned char exists = leveldb_iter_valid(iter);
+    if (exists == 0) {
+        return 0;
+    }
 
     size_t out_key_len;
     const char* out_key = leveldb_iter_key(iter, &out_key_len);
 
-	return ((klen == out_key_len) && (memcmp(k, out_key, klen) == 0));
+    return ((klen == out_key_len) && (memcmp(k, out_key, klen) == 0));
 }
