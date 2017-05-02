@@ -4,6 +4,7 @@ package levigo
 import "C"
 import "unsafe"
 
+// SeekResult is the result of a SeekTo.
 type SeekResult struct {
 	Valid bool
 	Equal bool
@@ -30,6 +31,7 @@ func SeekTo(it *Iterator, key []byte) SeekResult {
 	return sr
 }
 
+// Exists will seek the iterator to the given key and return true if it exists.
 func Exists(it *Iterator, key []byte) bool {
 	out := C.leveldb_iter_exists(it.Iter, (*C.char)(unsafe.Pointer(&key[0])), C.size_t(len(key)))
 	return ucharToBool(out)
