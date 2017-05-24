@@ -1,4 +1,7 @@
 
+// for memcmp
+#include <string.h>
+
 #include "seek_to.h"
 
 // Seek to the given key and return results about the seek.
