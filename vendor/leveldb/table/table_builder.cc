@@ -14,6 +14,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "lz4.h"
 
 namespace leveldb {
 
@@ -145,6 +146,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   Rep* r = rep_;
   Slice raw = block->Finish();
 
+  std::string *compressed;
+
   Slice block_contents;
   CompressionType type = r->options.compression;
   // TODO(postrelease): Support more compression options: zlib?
@@ -154,7 +157,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       break;
 
     case kSnappyCompression: {
-      std::string* compressed = &r->compressed_output;
+      compressed = &r->compressed_output;
+
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
           compressed->size() < raw.size() - (raw.size() / 8u)) {
         block_contents = *compressed;
@@ -165,6 +169,26 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
         type = kNoCompression;
       }
       break;
+    }
+
+    case kLZ4Compression: {
+      compressed = &r->compressed_output;
+
+      int limit, result_size;
+      limit = raw.size() - (raw.size() / 8u);
+      compressed ->resize(limit+4);
+      // XXX: compression levels?
+      result_size = LZ4_compress_default(raw.data(), (char *)(compressed->data())+4, raw.size(), limit);
+
+      if (result_size) {
+        EncodeFixed32((char *)compressed->data(), raw.size());
+        compressed->resize(result_size+4);
+        block_contents = *compressed;
+      } else {
+        // compressed less than 12.5% so just store uncompressed form
+        block_contents = raw;
+        type = kNoCompression;
+      }
     }
   }
   WriteRawBlock(block_contents, type, handle);

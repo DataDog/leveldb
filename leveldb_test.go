@@ -36,7 +36,7 @@ func TestC(t *testing.T) {
 	options.SetMaxOpenFiles(10)
 	options.SetBlockSize(1024)
 	options.SetBlockRestartInterval(8)
-	options.SetCompression(NoCompression)
+	//options.SetCompression(NoCompression)
 
 	roptions := NewReadOptions()
 	roptions.SetVerifyChecksums(true)

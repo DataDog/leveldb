@@ -204,6 +204,7 @@ enum {
   leveldb_no_compression = 0,
   leveldb_snappy_compression = 1
 };
+
 extern void leveldb_options_set_compression(leveldb_options_t*, int);
 
 /* Comparator */
