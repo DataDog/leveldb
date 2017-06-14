@@ -140,7 +140,7 @@ Status ReadBlock(RandomAccessFile* file,
       size_t ret;
       char* ubuf = new char[ulength];
 
-      ret = LZ4_decompress_safe(data+4, ubuf, n-4, ulength);
+      ret = level_LZ4_decompress_safe(data+4, ubuf, n-4, ulength);
       if (ret != ulength) {
         delete[] buf;
         delete[] ubuf;

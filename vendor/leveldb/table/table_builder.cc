@@ -178,7 +178,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       limit = raw.size() - (raw.size() / 8u);
       compressed ->resize(limit+4);
       // XXX: compression levels?
-      result_size = LZ4_compress_default(raw.data(), (char *)(compressed->data())+4, raw.size(), limit);
+      result_size = level_LZ4_compress_default(raw.data(), (char *)(compressed->data())+4, raw.size(), limit);
 
       if (result_size) {
         EncodeFixed32((char *)compressed->data(), raw.size());
