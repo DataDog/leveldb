@@ -20,7 +20,6 @@ link_leveldb:
 link_snappy:
 	rm -f vendor_snappy*
 	ln -s vendor/snappy/snappy.cc vendor_snappy.cc
-	ln -s vendor/snappy/snappy-c.cc vendor_snappy-c.cc
 	ln -s vendor/snappy/snappy-sinksource.cc vendor_snappy-sinksource.cc
 
 link_lz4:
