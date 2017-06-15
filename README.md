@@ -1,16 +1,15 @@
 # LevelDB
 
-A Go wrapper for LevelDB, forked from jmhodges/levigo. This fork makes levigo
-go-gettable by including the C++ source for LevelDB, and building it with the Go
-code.
+A Go wrapper for LevelDB, forked from [jmhodges/levigo](https://github.com/jmhodges/levigo).
+This fork makes levigo go-gettable by including the C++ source for LevelDB
+and building it with the Go code.  LevelDB and Snappy are both compiled
+and linked statically, so while you will not need them installed on your
+target machine, you _should_ have a roughly compatible version of `libstdc++`.
 
 This package currently includes LevelDB 1.19, and supports Linux and OS X.
 It should work on Go 1.5 or greater.
 
-The API has been godoc'ed and [is available on the
-web](http://godoc.org/github.com/jmhodges/levigo).
-
-Questions answered at `golang-nuts@googlegroups.com`.
+[godoc documentation](http://godoc.org/github.com/DataDog/leveldb).
 
 ## Building
 
@@ -27,6 +26,14 @@ To avoid waiting for compilation every time you want to build your project, you 
 
 `go install github.com/DataDog/leveldb`
 
+
+## Updating Vendored Snappy
+
+1. Overwrite source in `./vendor/snappy/`
+1. `make link_snappy`
+
+If nothing significant in snappy has changed, things should JustWork&trade;
+
 ## Updating Vendored LevelDB
 
 The embedded LevelDB source code is located in `vendor/leveldb`. In order to get
@@ -42,11 +49,10 @@ To change the embedded version of LevelDB, do the following:
 1. `cat build_flags/*`, take a quick look at the new compiler and linker flags
    and see if there are any flags we're missing in `cgo_flags_*.go`. If so, add
    them.
-1. Create symlinks to the new source files:
-```
-for sf in $(make source_files); do ln -s vendor/leveldb/$sf $(echo vendor_$sf | sed s,/,_,g); done
-```
+1. `make link_leveldb`
 1. On OS X and Linux, run `go build` and verify that everything compiles.
+
+_note_ I couldn't get `build_detect_platform` to run as advertised above -- j
 
 ## Caveats
 

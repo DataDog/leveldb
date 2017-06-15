@@ -10,6 +10,7 @@ type CompressionOpt int
 const (
 	NoCompression     = CompressionOpt(0)
 	SnappyCompression = CompressionOpt(1)
+	LZ4Compression    = CompressionOpt(2)
 )
 
 // Options represent all of the available options when opening a database with
@@ -42,10 +43,13 @@ type WriteOptions struct {
 	Opt *C.leveldb_writeoptions_t
 }
 
-// NewOptions allocates a new Options object.
+// NewOptions allocates a new Options object.  Note that the CompressionLevel
+// is set to NoCompression by default rather than SnappyCompression.
 func NewOptions() *Options {
 	opt := C.leveldb_options_create()
-	return &Options{opt}
+	o := &Options{opt}
+	o.SetCompression(NoCompression)
+	return o
 }
 
 // NewReadOptions allocates a new ReadOptions object.
@@ -146,8 +150,9 @@ func (o *Options) SetBlockRestartInterval(n int) {
 // SetCompression sets whether to compress blocks using the specified
 // compresssion algorithm.
 //
-// The default value is SnappyCompression and it is fast enough that it is
-// unlikely you want to turn it off. The other option is NoCompression.
+// The default value is NoCompression, but either SnappyCompression or
+// LZ4Compression are both fast enough that it is unlikely you want to
+// keep them off.
 //
 // If the LevelDB library was built without Snappy compression enabled, the
 // SnappyCompression setting will be ignored.

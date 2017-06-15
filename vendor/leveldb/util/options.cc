@@ -21,7 +21,7 @@ Options::Options()
       block_cache(NULL),
       block_size(4096),
       block_restart_interval(16),
-      compression(kSnappyCompression),
+      compression(kLZ4Compression),
       reuse_logs(false),
       filter_policy(NULL) {
 }
