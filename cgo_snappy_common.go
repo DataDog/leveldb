@@ -1,5 +1,3 @@
-// +build linux
-
 package levigo
 
 // #cgo CFLAGS: -I${SRCDIR}/vendor/snappy -DSNAPPY
