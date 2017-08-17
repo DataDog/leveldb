@@ -1,1 +1,0 @@
-vendor/snappy/snappy-sinksource.cc

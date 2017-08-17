@@ -29,23 +29,23 @@ To avoid waiting for compilation every time you want to build your project, you 
 
 ## Updating Vendored Snappy
 
-1. Overwrite source in `./vendor/snappy/`
+1. Overwrite source in `./deps/snappy/`
 1. `make link_snappy`
 
 If nothing significant in snappy has changed, things should JustWork&trade;
 
 ## Updating Vendored LevelDB
 
-The embedded LevelDB source code is located in `vendor/leveldb`. In order to get
+The embedded LevelDB source code is located in `deps/leveldb`. In order to get
 `go build` to compile LevelDB, we symlink the required LevelDB source files to
-the root directory of the project. These symlinks are prefixed with `vendor_`.
+the root directory of the project. These symlinks are prefixed with `deps_`.
 
 To change the embedded version of LevelDB, do the following:
 
-1. `rm vendor_*.cc`
-1. Replace `vendor/leveldb` with the source code of the desired version of LevelDB
-1. On Linux, run `./vendor/leveldb/build_detect_platform linux.mk build_flags`
-1. On OS X, run `./vendor/leveldb/build_detect_platform darwin.mk build_flags`
+1. `rm deps_*.cc`
+1. Replace `deps/leveldb` with the source code of the desired version of LevelDB
+1. On Linux, run `./deps/leveldb/build_detect_platform linux.mk build_flags`
+1. On OS X, run `./deps/leveldb/build_detect_platform darwin.mk build_flags`
 1. `cat build_flags/*`, take a quick look at the new compiler and linker flags
    and see if there are any flags we're missing in `cgo_flags_*.go`. If so, add
    them.
