@@ -95,7 +95,7 @@ extern "C" {
 #define LZ4_VERSION_STRING LZ4_EXPAND_AND_QUOTE(LZ4_LIB_VERSION)
 
 LZ4LIB_API int level_LZ4_versionNumber (void);
-LZ4LIB_API const char* LZ4_versionString (void);
+LZ4LIB_API const char* level_LZ4_versionString (void);
 
 
 /*-************************************

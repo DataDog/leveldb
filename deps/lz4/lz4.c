@@ -391,7 +391,7 @@ typedef enum { full = 0, partial = 1 } earlyEnd_directive;
 *  Local Utils
 **************************************/
 int level_LZ4_versionNumber (void) { return LZ4_VERSION_NUMBER; }
-const char* LZ4_versionString(void) { return LZ4_VERSION_STRING; }
+const char* level_LZ4_versionString(void) { return LZ4_VERSION_STRING; }
 int level_LZ4_compressBound(int isize)  { return LZ4_COMPRESSBOUND(isize); }
 int level_LZ4_sizeofState() { return LZ4_STREAMSIZE; }
 
