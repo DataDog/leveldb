@@ -24,7 +24,9 @@ void levigo_leveldb_approximate_sizes(
 import "C"
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -211,6 +213,75 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 
 	defer C.leveldb_free(unsafe.Pointer(value))
 	return C.GoBytes(unsafe.Pointer(value), C.int(vallen)), nil
+}
+
+// GetMany returns the values associated a list of keys from the database.
+//
+// If the key does not exist in the database, a nil []byte is returned. If the
+// key does exist, but the data is zero-length in the database, a zero-length
+// []byte will be returned.
+//
+// The keys byte slice may be reused safely. Go makes a copy of
+// them before returning.
+func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
+	if db.closed {
+		panic(ErrDBClosed)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	var packedKeysBuffer bytes.Buffer
+	cKeyLens := make([]C.size_t, len(keys))
+	for i := range keys {
+		packedKeysBuffer.Write(keys[i])
+		cKeyLens[i] = C.size_t(len(keys[i]))
+		for j := range keys[i] {
+			fmt.Printf("%02x", keys[i][j])
+		}
+		fmt.Printf("\n")
+	}
+	packedKeysBytes := packedKeysBuffer.Bytes()
+
+	var cPackedVals *C.char
+	var cValLens *C.size_t
+	var cPackedErrs *C.char
+	C.leveldb_getmany(
+		db.Ldb, ro.Opt, (*C.char)(unsafe.Pointer(&packedKeysBytes[0])), C.size_t(len(keys)), &cKeyLens[0], &cPackedVals, &cValLens, &cPackedErrs)
+
+	valueLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
+
+	// Unpack the packed values from C into Golang byte slices
+	values := make([][]byte, len(keys))
+	errs := make([]error, len(keys))
+	offset := 0
+	for i := range valueLens {
+		if valueLens[i] > 0 {
+			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(offset)), C.int(valueLens[i]))
+			offset += int(valueLens[i])
+		} else if valueLens[i] == 0 {
+			// keys[i] is found but with empty value
+			values[i] = []byte{}
+		} else {
+			// -1 means not found
+			values[i] = nil
+		}
+
+		/*
+			if cErrs[i] != nil {
+				gs := C.GoString(cErrs[i])
+				C.leveldb_free(unsafe.Pointer(cErrs[i]))
+				errs[i] = DatabaseError(gs)
+			}
+
+		*/
+	}
+
+	C.leveldb_free(unsafe.Pointer(cPackedVals))
+	C.leveldb_free(unsafe.Pointer(cValLens))
+	//C.leveldb_free(unsafe.Pointer(&cErrs))
+
+	return values, errs
 }
 
 // Delete removes the data associated with the key from the database.

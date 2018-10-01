@@ -215,6 +215,53 @@ char* leveldb_get(
   return result;
 }
 
+void leveldb_getmany(
+    leveldb_t* db,
+    const leveldb_readoptions_t* options,
+    const char* packed_keys,
+    size_t num_keys,
+    const size_t* keylens,
+    char** packed_vals,
+    size_t** vallens,
+    char** packed_errs) {
+  // All values and/or errors for each key are passed back via
+  // out-parameters allocated here. Caller is responsible for
+  // freeing them.
+  *vallens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
+  *packed_errs = reinterpret_cast<char*>(malloc(sizeof(char) * num_keys));
+
+  int offset = 0;
+  std::vector<std::string> values(num_keys);
+  int packed_vals_len = 0;
+  std::vector<std::string> errs(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    Slice key(const_cast<char*>(&(packed_keys[offset])), keylens[i]);
+    offset += keylens[i];
+
+    Status s = db->rep->Get(options->rep, key, &(values[i]));
+    if (s.ok()) {
+      (*vallens)[i] = values[i].size();
+      packed_vals_len += values[i].size();
+    } else {
+      values[i] = "";
+      if (!s.IsNotFound()) { 
+        (*vallens)[i] = 0;
+      } else {
+        (*vallens)[i] = -1;
+      }      
+    }
+  }
+
+  offset = 0;
+  *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
+  for (int i = 0; i < values.size(); i++) {
+    memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
+    offset += values[i].length();
+  }
+
+  // FIXME: packed the errors as well
+}
+
 leveldb_iterator_t* leveldb_create_iterator(
     leveldb_t* db,
     const leveldb_readoptions_t* options) {
