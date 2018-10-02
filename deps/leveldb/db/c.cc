@@ -223,43 +223,65 @@ void leveldb_getmany(
     const size_t* keylens,
     char** packed_vals,
     size_t** vallens,
-    char** packed_errs) {
-  // All values and/or errors for each key are passed back via
-  // out-parameters allocated here. Caller is responsible for
-  // freeing them.
+    char** packed_errs,
+    size_t** errlens) {
+  // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
+  // the heap which the caller in go-land should free via C.leveldb_free()
   *vallens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
-  *packed_errs = reinterpret_cast<char*>(malloc(sizeof(char) * num_keys));
+  *errlens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
 
-  int offset = 0;
+  int key_offset = 0;
   std::vector<std::string> values(num_keys);
   int packed_vals_len = 0;
   std::vector<std::string> errs(num_keys);
+  int packed_errs_len = 0;
   for (int i = 0; i < num_keys; i++) {
-    Slice key(const_cast<char*>(&(packed_keys[offset])), keylens[i]);
-    offset += keylens[i];
+    Slice key(const_cast<char*>(&(packed_keys[key_offset])), keylens[i]);
+    key_offset += keylens[i];
 
     Status s = db->rep->Get(options->rep, key, &(values[i]));
+    (*vallens)[i] = 0;
+    (*errlens)[i] = 0;
     if (s.ok()) {
       (*vallens)[i] = values[i].size();
       packed_vals_len += values[i].size();
     } else {
-      values[i] = "";
-      if (!s.IsNotFound()) { 
-        (*vallens)[i] = 0;
-      } else {
+      if (s.IsNotFound()) {
+        // Key is not in db, not an error
         (*vallens)[i] = -1;
-      }      
+      } else {
+        errs[i] = s.ToString();
+        (*errlens)[i] = errs[i].length();
+        packed_errs_len += errs[i].length();
+      }
     }
   }
 
-  offset = 0;
+  // cgo only support simple type conversions from c go to for int/chars
+  // and simple linear array of such types. To pass back multiple values,
+  // we pack all of them into one malloc()-ed byte array packed_vals, 
+  // with an array of offsets, vallens. Caller can use them together
+  // to unpack the values
+  int offset = 0;
   *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
   for (int i = 0; i < values.size(); i++) {
-    memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
-    offset += values[i].length();
+    if (values[i].length() > 0) {
+      memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
+      offset += values[i].length();
+    }
   }
 
-  // FIXME: packed the errors as well
+  // Do the same for errors
+  offset = 0;
+  if (packed_errs_len > 0) {
+    *packed_errs = reinterpret_cast<char*>(malloc(packed_errs_len));
+    for (int i = 0; i < errs.size(); i++) {
+      if (errs[i].length() > 0) {
+        memcpy(&((*packed_errs)[offset]), errs[i].data(), errs[i].length());
+        offset += errs[i].length();
+      }
+    }
+  }
 }
 
 leveldb_iterator_t* leveldb_create_iterator(

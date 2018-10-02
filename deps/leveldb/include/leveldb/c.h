@@ -112,7 +112,8 @@ extern void leveldb_getmany(
     const size_t* keylens,
     char** packed_vals,
     size_t** vallens,
-    char** packed_errs);
+    char** packed_errs,
+    size_t** errlens);
 
 extern leveldb_iterator_t* leveldb_create_iterator(
     leveldb_t* db,
