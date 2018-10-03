@@ -257,11 +257,11 @@ void leveldb_getmany(
     }
   }
 
-  // cgo only support simple type conversions from c go to for int/chars
-  // and simple linear array of such types. To pass back multiple values,
-  // we pack all of them into one malloc()-ed byte array packed_vals, 
-  // with an array of offsets, vallens. Caller can use them together
-  // to unpack the values
+  // cgo only support simple type conversions between c<->go for int/char
+  // and simple linear array of ints/chars. To pass back multiple values
+  // (arrays of char arrays), we pack all of them into one malloc()-ed char
+  // array, `packed_vals`, with an array of offsets, `vallens`. Caller can then
+  // use them together to unpack the values
   int offset = 0;
   *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
   for (int i = 0; i < values.size(); i++) {
