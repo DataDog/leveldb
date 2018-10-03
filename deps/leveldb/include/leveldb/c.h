@@ -111,7 +111,7 @@ extern void leveldb_getmany(
     size_t num_keys,
     const size_t* keylens,
     char** packed_vals,
-    size_t** vallens,
+    int** vallens,
     char** packed_errs,
     size_t** errlens);
 

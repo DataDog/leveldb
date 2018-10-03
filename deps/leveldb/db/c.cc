@@ -222,12 +222,12 @@ void leveldb_getmany(
     size_t num_keys,
     const size_t* keylens,
     char** packed_vals,
-    size_t** vallens,
+    int** vallens, // value must be signed int as it could be -1 to distinguish not-found from an empty value
     char** packed_errs,
     size_t** errlens) {
   // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
   // the heap which the caller in go-land should free via C.leveldb_free()
-  *vallens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
+  *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
   *errlens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
 
   int key_offset = 0;

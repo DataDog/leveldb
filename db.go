@@ -255,7 +255,8 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	var cPackedVals *C.char
-	var cValLens *C.size_t
+	// Must be signed int as a value could be -1 to distinguish not-found from an empty value
+	var cValLens *C.int
 	var cPackedErrs *C.char
 	var cErrLens *C.size_t
 	C.leveldb_getmany(
@@ -282,7 +283,7 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	// Unpack the packed values from C chars into Golang byte slices
-	valueLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
+	valueLens := (*[1 << 30]C.int)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
 	values := make([][]byte, len(keys))
 	offset = 0
 	for i := range valueLens {
