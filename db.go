@@ -240,6 +240,19 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 		cKeyLens[i] = C.size_t(len(keys[i]))
 	}
 	packedKeysBytes := packedKeysBuffer.Bytes()
+	if len(packedKeysBytes) == 0 {
+		// If all the keys are empty, abide by the behavior of Get() when given
+		// an empty key and return the same (value, error) pair for all keys[i].
+		// This is the most consistent, though somewhat hilarious, behavior.
+		emptyKeyVal, err := db.Get(ro, []byte{})
+		errs := make([]error, len(keys))
+		values := make([][]byte, len(keys))
+		for i := range keys {
+			values[i] = emptyKeyVal
+			errs[i] = err
+		}
+		return values, errs
+	}
 
 	var cPackedVals *C.char
 	var cValLens *C.size_t
@@ -280,6 +293,10 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 			// No error and no value, it means keys[i] is found but with empty value
 			values[i] = []byte{}
 		}
+		// else we have either:
+		// 1. errs[i] == nil && valueLens[i] < 0 indicating keys[i] is not found
+		// 2. errs[i] != nil indicating an error looking up keys[i].
+		// In both cases values[i] defaults to nil
 	}
 
 	return values, errs
