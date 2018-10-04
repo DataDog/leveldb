@@ -343,7 +343,7 @@ func TestDBGetMany(t *testing.T) {
 		[]byte("hello world3"),
 		[]byte{}, // Yes an empty byte slice as key is valid
 		[]byte("hello world4"),
-		[]byte{}, // yes a nil key is also valid, it's interpreted as an empty byte slice
+		nil, // yes a nil key is also valid, it's interpreted as an empty byte slice
 	}
 
 	emptyKeyValue := []byte("value for empty key")
