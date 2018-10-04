@@ -318,6 +318,114 @@ func TestIterationValidityLimits(t *testing.T) {
 	}
 }
 
+// Tests DataDog-introduced special menu item GetMany()
+func TestDBGetMany(t *testing.T) {
+	dbname := tempDir(t)
+	defer deleteDBDirectory(t, dbname)
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	ro := NewReadOptions()
+	wo := NewWriteOptions()
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	if err != nil {
+		t.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	keys := [][]byte{
+		[]byte("hello world0"),
+		[]byte("hello world1"),
+		[]byte("hello world2"),
+		[]byte("hello world3"),
+		[]byte{}, // Yes an empty byte slice as key is valid
+		[]byte("hello world4"),
+		[]byte{}, // yes a nil key is also valid, it's interpreted as an empty byte slice
+	}
+
+	emptyKeyValue := []byte("value for empty key")
+	expectedValues := [][]byte{
+		[]byte("value for hello world0"),
+		[]byte("value for hello world1"),
+		[]byte("value for hello world2"),
+		[]byte("value for hello world3"),
+		emptyKeyValue,
+		[]byte("value for hello world4"),
+		emptyKeyValue,
+	}
+	// Populate the db with some test key-value pairs
+	for i := range keys {
+		err := db.Put(wo, keys[i], expectedValues[i])
+		if err != nil {
+			t.Errorf("Put failed: %v", err)
+		}
+	}
+
+	values, errs := db.GetMany(ro, keys)
+	if len(values) != len(errs) {
+		t.Errorf("GetMany() mismatch values len and errs len")
+	}
+	for i := range keys {
+		if errs[i] != nil {
+			t.Errorf("GetMany() failed for key[%d]: %v", i, errs[i])
+		}
+		if bytes.Compare(expectedValues[i], values[i]) != 0 {
+			t.Errorf("values[%d] is not the same as expected: %v", i, expectedValues[i])
+		}
+	}
+
+	keys2 := [][]byte{
+		[]byte("hello world0-NOT_FOUND"),
+		[]byte("hello world1"),
+		[]byte{}, // Yes an empty byte slice as key is valid
+		[]byte("hello world5-NOT_FOUND"),
+	}
+	values, errs = db.GetMany(ro, keys2)
+	if len(values) != len(errs) {
+		t.Errorf("GetMany() mismatch values len and errs len")
+	}
+	for i := range errs {
+		if errs[i] != nil {
+			t.Errorf("not expecting an error for key %d", i)
+		}
+	}
+
+	if values[0] != nil {
+		t.Errorf("Expecting non-existant key to return value of nil")
+	}
+	if bytes.Compare(expectedValues[1], values[1]) != 0 {
+		t.Errorf("values[%d] is not the same as expected: %v", 1, expectedValues[1])
+	}
+	if bytes.Compare(emptyKeyValue, values[2]) != 0 {
+		t.Errorf("values[%d] is not the same as expected value under empty key: %v", 2, emptyKeyValue)
+	}
+	if values[3] != nil {
+		t.Errorf("Expecting non-existant key to return value of nil")
+	}
+
+	values, errs = db.GetMany(ro, nil)
+	if values != nil || errs != nil {
+		t.Errorf("GetMany(): on nil slice should return nil, nil")
+	}
+
+	// Calling GetMany on a slice of N nil slices will be interpreted
+	// as N Gets of the same empty key
+	emptyKeys := make([][]byte, 10)
+	values, errs = db.GetMany(ro, emptyKeys)
+	if len(values) != len(errs) {
+		t.Errorf("GetMany() mismatch values len and errs len")
+	}
+	for i := range values {
+		if errs[i] != nil {
+			t.Errorf("GetMany() for an empty key should return something")
+		}
+		if bytes.Compare(emptyKeyValue, values[i]) != 0 {
+			t.Errorf("GetMany() for an empty key should return the value under that key")
+		}
+	}
+}
+
 func CheckGet(t *testing.T, where string, db *DB, roptions *ReadOptions, key, expected []byte) {
 	getValue, err := db.Get(roptions, key)
 
