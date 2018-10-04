@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -434,23 +435,17 @@ func TestDBGetMany(t *testing.T) {
 var useGetMany = flag.Bool("_ldb_usegetmany", true, "By default uses uses GetMany() in favor of multiple calls of Get()")
 
 func BenchmarkDBGets(b *testing.B) {
-	// We only want a reasonably available path to hold the new db
-	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("levigo-benchmark-dbgets-%d", rand.Int()))
-	// We'll be putting a db in its place
-	os.RemoveAll(tmpPath)
-
+	dbname := ioutil.TempDir("", "levigo-benchmark-")
 	options := NewOptions()
 	options.SetErrorIfExists(true)
 	options.SetCreateIfMissing(true)
 	ro := NewReadOptions()
 	wo := NewWriteOptions()
-	dbname := tmpPath
-	_ = DestroyDatabase(dbname, options)
 	db, err := Open(dbname, options)
-	defer os.RemoveAll(dbname)
 	if err != nil {
 		b.Fatalf("Database could not be opened: %v", err)
 	}
+	defer os.RemoveAll(dbname)
 	defer db.Close()
 
 	// Populate the db with some test key-value pairs
