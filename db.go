@@ -255,7 +255,6 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	var cPackedVals *C.char
-	// Must be signed int as a value could be -1 to distinguish not-found from an empty value
 	var cValLens *C.int
 	var cPackedErrs *C.char
 	var cErrLens *C.size_t

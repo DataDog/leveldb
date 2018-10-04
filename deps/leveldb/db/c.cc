@@ -222,7 +222,7 @@ void leveldb_getmany(
     size_t num_keys,
     const size_t* keylens,
     char** packed_vals,
-    int** vallens, // value must be signed int as it could be -1 to distinguish not-found from an empty value
+    int** vallens, // must be signed int as (*vallens)[i] could be set to -1 to distinguish not-found from an empty value
     char** packed_errs,
     size_t** errlens) {
   // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
