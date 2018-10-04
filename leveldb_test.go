@@ -455,7 +455,7 @@ func BenchmarkDBGets(b *testing.B) {
 
 	// Populate the db with some test key-value pairs
 	const fixedKeyLen = 20
-	const fixedValueLen = 256
+	const fixedValueLen = 128
 	keys := make([][]byte, 10000)
 	expectedValues := make([][]byte, len(keys))
 	nb := 0
