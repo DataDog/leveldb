@@ -465,6 +465,7 @@ func BenchmarkDBGets(b *testing.B) {
 		if n != len(keys[i]) || err != nil {
 			b.Fatalf("could not generate random keys")
 		}
+		expectedValues[i] = make([]byte, fixedValueLen)
 		n, err = rand.Read(expectedValues[i])
 		if n != len(expectedValues[i]) || err != nil {
 			b.Fatalf("could not generate random values")
