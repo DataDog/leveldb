@@ -2,10 +2,12 @@ package levigo
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -422,6 +424,70 @@ func TestDBGetMany(t *testing.T) {
 		}
 		if bytes.Compare(emptyKeyValue, values[i]) != 0 {
 			t.Errorf("GetMany() for an empty key should return the value under that key")
+		}
+	}
+}
+
+// To get the benchmarks of multiple DB gets using Get() instead of the
+// GetMany() API, disable the flag like so:
+// go test -count=2 -run=^$ -bench=BenchmarkDBGets -_ldb_usegetmany=false
+var useGetMany = flag.Bool("_ldb_usegetmany", true, "By default uses uses GetMany() in favor of multiple calls of Get()")
+
+func BenchmarkDBGets(b *testing.B) {
+	// We only want a reasonably available path to hold the new db
+	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("levigo-benchmark-dbgets-%d", rand.Int()))
+	// We'll be putting a db in its place
+	os.RemoveAll(tmpPath)
+
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	ro := NewReadOptions()
+	wo := NewWriteOptions()
+	dbname := tmpPath
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	defer os.RemoveAll(dbname)
+	if err != nil {
+		b.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	// Populate the db with some test key-value pairs
+	const fixedKeyLen = 20
+	const fixedValueLen = 256
+	keys := make([][]byte, 10000)
+	expectedValues := make([][]byte, len(keys))
+	nb := 0
+	for i := range keys {
+		keys[i] = make([]byte, fixedKeyLen)
+		n, err := rand.Read(keys[i])
+		if n != len(keys[i]) || err != nil {
+			b.Fatalf("could not generate random keys")
+		}
+		n, err = rand.Read(expectedValues[i])
+		if n != len(expectedValues[i]) || err != nil {
+			b.Fatalf("could not generate random values")
+		}
+		err = db.Put(wo, keys[i], expectedValues[i])
+		nb += len(keys[i])
+		if err != nil {
+			b.Errorf("Put failed: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	b.SetBytes(int64(nb))
+
+	for i := 0; i < b.N; i++ {
+		if *useGetMany {
+			values, _ := db.GetMany(ro, keys)
+			runtime.KeepAlive(values)
+		} else {
+			for j := range keys {
+				v, _ := db.Get(ro, keys[j])
+				runtime.KeepAlive(v)
+			}
 		}
 	}
 }
