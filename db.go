@@ -178,6 +178,75 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 	return nil
 }
 
+// PutMany writes all of the keys[i] => values[i] to the database. It has
+// the same semantics as Put(). In particular, if all of values[i] is nil or []byte{},
+// All values of keys will be set to the same zero-length slice value.
+//
+// The keys and values byte slices may be reused safely. PutMany takes a copy of
+// them before returning.
+func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) []error {
+	if db.closed {
+		panic(ErrDBClosed)
+	}
+
+	if len(keys) == 0 {
+		return []error{errors.New("cannot call PutMany() with len(keys) == 0")}
+	}
+	if len(values) == 0 {
+		return []error{errors.New("cannot call PutMany() with len(values) == 0")}
+	}
+	if len(keys) != len(values) {
+		return []error{errors.New("cannot call PutMany() with len(keys) != len(values)")}
+	}
+
+	packedKeys, keyLens := toPackedBytes(keys)
+	packedVals, valLens := toPackedBytes(values)
+	if len(packedKeys) == 0 {
+		// Unlike GetMany(), calling PutMany() with say 2 empty key slices is likely
+		// an error as it's not clear which value should be assigned to the empty key
+		return []error{errors.New("cannot call PutMany() with all empty key slices")}
+	}
+
+	var cPackedVals *C.char
+	var cValLens *C.size_t
+	if len(packedVals) > 0 {
+		cPackedVals = (*C.char)(unsafe.Pointer(&packedVals[0]))
+		cValLens = &valLens[0]
+	} else {
+		// Calling PutMany() with all empty value slices will result in setting all
+		// of the values for every key to the empty value
+		cPackedVals = nil
+		cValLens = nil
+	}
+
+	var cPackedErrs *C.char
+	var cErrLens *C.size_t
+	C.leveldb_putmany(
+		db.Ldb, wo.Opt,
+		C.size_t(len(keys)),
+		(*C.char)(unsafe.Pointer(&packedKeys[0])), &keyLens[0],
+		cPackedVals, cValLens,
+		&cPackedErrs, &cErrLens)
+	defer C.leveldb_free(unsafe.Pointer(cPackedErrs))
+	defer C.leveldb_free(unsafe.Pointer(cErrLens))
+
+	// Unpack the errors from C chars into Golang error objects
+	errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
+	errs := make([]error, len(errLens))
+	offset := 0
+	for i := range errLens {
+		if errLens[i] == 0 {
+			continue
+		}
+		b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
+		errStrLen := int(errLens[i])
+		errs[i] = fmt.Errorf(string(b[:errStrLen]))
+		offset += errStrLen
+	}
+
+	return errs
+}
+
 // Get returns the data associated with the key from the database.
 //
 // If the key does not exist in the database, a nil []byte is returned. If the
@@ -223,7 +292,7 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // - If keys[i] does exist, but its value is zero-length, values[i] == []byte{}.
 // - If there's an error looking up keys[i], values[i] == nil.
 //
-// The keys byte slice may be reused safely. Go takes a copy of
+// The keys byte slice may be reused safely. GetMany takes a copy of
 // them before returning.
 func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	if db.closed {
@@ -233,14 +302,8 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 		return nil, nil
 	}
 
-	var packedKeysBuffer bytes.Buffer
-	cKeyLens := make([]C.size_t, len(keys))
-	for i := range keys {
-		packedKeysBuffer.Write(keys[i])
-		cKeyLens[i] = C.size_t(len(keys[i]))
-	}
-	packedKeysBytes := packedKeysBuffer.Bytes()
-	if len(packedKeysBytes) == 0 {
+	packedKeys, keyLens := toPackedBytes(keys)
+	if len(packedKeys) == 0 {
 		// If all the keys are empty, abide by the behavior of Get() when given
 		// an empty key and return the same (value, error) pair for all keys[i].
 		// This is the most consistent, though somewhat hilarious, behavior.
@@ -259,7 +322,7 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	var cPackedErrs *C.char
 	var cErrLens *C.size_t
 	C.leveldb_getmany(
-		db.Ldb, ro.Opt, (*C.char)(unsafe.Pointer(&packedKeysBytes[0])), C.size_t(len(keys)), &cKeyLens[0],
+		db.Ldb, ro.Opt, (*C.char)(unsafe.Pointer(&packedKeys[0])), C.size_t(len(keys)), &keyLens[0],
 		&cPackedVals, &cValLens,
 		&cPackedErrs, &cErrLens)
 	defer C.leveldb_free(unsafe.Pointer(cPackedErrs))
@@ -269,7 +332,7 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 
 	// Unpack the errors from C chars into Golang error objects
 	errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-	errs := make([]error, len(keys))
+	errs := make([]error, len(errLens))
 	offset := 0
 	for i := range errLens {
 		if errLens[i] == 0 {
@@ -283,7 +346,7 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 
 	// Unpack the packed values from C chars into Golang byte slices
 	valueLens := (*[1 << 30]C.int)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
-	values := make([][]byte, len(keys))
+	values := make([][]byte, len(valueLens))
 	offset = 0
 	for i := range valueLens {
 		if valueLens[i] > 0 {
@@ -300,6 +363,17 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	return values, errs
+}
+
+func toPackedBytes(slices [][]byte) ([]byte, []C.size_t) {
+	var packedBuffer bytes.Buffer
+	cSliceLens := make([]C.size_t, len(slices))
+	for i := range slices {
+		packedBuffer.Write(slices[i])
+		cSliceLens[i] = C.size_t(len(slices[i]))
+	}
+
+	return packedBuffer.Bytes(), cSliceLens
 }
 
 // Delete removes the data associated with the key from the database.

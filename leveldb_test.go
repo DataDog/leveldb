@@ -321,8 +321,8 @@ func TestIterationValidityLimits(t *testing.T) {
 	}
 }
 
-// Tests DataDog-introduced special menu item GetMany()
-func TestDBGetMany(t *testing.T) {
+// Tests DataDog-introduced special menu items PutMany() and GetMany()
+func TestDBPutManyGetMany(t *testing.T) {
 	dbname := tempDir(t)
 	defer deleteDBDirectory(t, dbname)
 	options := NewOptions()
@@ -336,6 +336,19 @@ func TestDBGetMany(t *testing.T) {
 		t.Fatalf("Database could not be opened: %v", err)
 	}
 	defer db.Close()
+
+	errs := db.PutMany(wo, nil, [][]byte{[]byte("hi")})
+	if len(errs) != 1 || errs[0] == nil {
+		t.Errorf("Expecting failure for PutMany() with nil keys")
+	}
+	errs = db.PutMany(wo, [][]byte{[]byte("hi")}, nil)
+	if len(errs) != 1 || errs[0] == nil {
+		t.Errorf("Expecting failure for PutMany() with nil values")
+	}
+	errs = db.PutMany(wo, [][]byte{[]byte("key-1"), []byte("key-2")}, [][]byte{[]byte("value-1")})
+	if len(errs) != 1 || errs[0] == nil {
+		t.Errorf("Expecting failure for PutMany() with len(keys) != len(values)")
+	}
 
 	keys := [][]byte{
 		[]byte("hello world0"),
@@ -358,10 +371,10 @@ func TestDBGetMany(t *testing.T) {
 		emptyKeyValue,
 	}
 	// Populate the db with some test key-value pairs
-	for i := range keys {
-		err := db.Put(wo, keys[i], expectedValues[i])
-		if err != nil {
-			t.Errorf("Put failed: %v", err)
+	errs = db.PutMany(wo, keys, expectedValues)
+	for i := range errs {
+		if errs[i] != nil {
+			t.Errorf("PutMany() failed for key[%d]: %v", i, errs[i])
 		}
 	}
 
@@ -425,6 +438,64 @@ func TestDBGetMany(t *testing.T) {
 		}
 		if bytes.Compare(emptyKeyValue, values[i]) != 0 {
 			t.Errorf("GetMany() for an empty key should return the value under that key")
+		}
+	}
+}
+
+func __TestALongTime(t *testing.T) {
+	// We only want a reasonably available path to hold the new db
+	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("levigo-benchmark-dbgets-%d", rand.Int()))
+	// We'll be putting a db in its place
+	os.RemoveAll(tmpPath)
+
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	ro := NewReadOptions()
+	wo := NewWriteOptions()
+	dbname := tmpPath
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	defer os.RemoveAll(dbname)
+	if err != nil {
+		t.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	// Populate the db with some test key-value pairs
+	const fixedKeyLen = 20
+	const fixedValueLen = 256
+	keys := make([][]byte, 10000)
+	expectedValues := make([][]byte, len(keys))
+	for i := range keys {
+		keys[i] = make([]byte, fixedKeyLen)
+		n, err := rand.Read(keys[i])
+		if n != len(keys[i]) || err != nil {
+			t.Fatalf("could not generate random keys")
+		}
+		expectedValues[i] = make([]byte, fixedValueLen)
+		n, err = rand.Read(expectedValues[i])
+		if n != len(expectedValues[i]) || err != nil {
+			t.Fatalf("could not generate random values")
+		}
+		err = db.Put(wo, keys[i], expectedValues[i])
+		if err != nil {
+			t.Errorf("Put failed: %v", err)
+		}
+	}
+
+	nb := 0
+	round := 0
+	fmt.Printf("Alloced:\n")
+	for {
+		round++
+
+		values, _ := db.GetMany(ro, keys)
+		for k := range values {
+			nb += len(values[k])
+		}
+		if round%1000 == 0 {
+			fmt.Printf("%d\n", nb)
 		}
 	}
 }

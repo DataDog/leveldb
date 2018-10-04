@@ -177,6 +177,59 @@ void leveldb_put(
             db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
 }
 
+extern void leveldb_putmany(
+    leveldb_t* db,
+    const leveldb_writeoptions_t* options,
+    size_t num_keys,
+    const char* packed_keys,
+    const size_t* keylens,
+    const char* packed_vals,
+    const size_t* vallens,
+    char** packed_errs,
+    size_t** errlens) {
+
+  // errlens and packed_errs are out-params malloc()-ed from
+  // the heap which the caller in go-land should free via C.leveldb_free()
+  *errlens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
+
+  int key_offset = 0;
+  int val_offset = 0;
+  const Slice EmptyValue = Slice(NULL, 0);
+  std::vector<std::string> errs(num_keys);
+  int packed_errs_len = 0;
+  for (int i = 0; i < num_keys; i++) {
+    Slice key(const_cast<char*>(&(packed_keys[key_offset])), keylens[i]);
+    key_offset += keylens[i];
+
+    Status s;
+    if (packed_vals != NULL && vallens[i] > 0) {
+      Slice value(const_cast<char*>(&(packed_vals[val_offset])), vallens[i]);
+      val_offset += vallens[i];
+      s = db->rep->Put(options->rep, key, value);
+    } else {
+      s = db->rep->Put(options->rep, key, EmptyValue);
+    }
+
+    (*errlens)[i] = 0;
+    if (!s.ok()) {
+      errs[i] = s.ToString();
+      (*errlens)[i] = errs[i].length();
+      packed_errs_len += errs[i].length();
+    }
+  }
+
+  int offset = 0;
+  if (packed_errs_len > 0) {
+    *packed_errs = reinterpret_cast<char*>(malloc(packed_errs_len));
+    for (int i = 0; i < errs.size(); i++) {
+      if (errs[i].length() > 0) {
+        memcpy(&((*packed_errs)[offset]), errs[i].data(), errs[i].length());
+        offset += errs[i].length();
+      }
+    }
+  }
+}
+
 void leveldb_delete(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,

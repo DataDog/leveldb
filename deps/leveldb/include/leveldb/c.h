@@ -83,6 +83,17 @@ extern void leveldb_put(
     const char* val, size_t vallen,
     char** errptr);
 
+extern void leveldb_putmany(
+    leveldb_t* db,
+    const leveldb_writeoptions_t* options,
+    size_t num_keys,
+    const char* packed_keys,
+    const size_t* keylens,
+    const char* packed_vals,
+    const size_t* vals_lens,
+    char** packed_errs,
+    size_t** errlens);
+
 extern void leveldb_delete(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
