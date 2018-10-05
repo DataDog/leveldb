@@ -493,12 +493,15 @@ func TestMemLeak(t *testing.T) {
 }
 
 func BenchmarkDBGets(b *testing.B) {
-	b.Run("SingleGet", func(b *testing.B) { benchmarkDBGets(b, false) })
-	b.Run("MultiGet", func(b *testing.B) { benchmarkDBGets(b, true) })
+	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
+	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
 }
 
 func benchmarkDBGets(b *testing.B, useGetMany bool) {
-	dbname := ioutil.TempDir("", "levigo-benchmark-")
+	dbname, err := ioutil.TempDir("", "levigo-benchmark-")
+	if err != nil {
+		b.Fatalf("Failed to create db for benchmark")
+	}
 	options := NewOptions()
 	options.SetErrorIfExists(true)
 	options.SetCreateIfMissing(true)
