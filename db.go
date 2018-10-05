@@ -230,18 +230,24 @@ func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) []error {
 	defer C.leveldb_free(unsafe.Pointer(cPackedErrs))
 	defer C.leveldb_free(unsafe.Pointer(cErrLens))
 
-	// Unpack the errors from C chars into Golang error objects
-	errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-	errs := make([]error, len(errLens))
-	offset := 0
-	for i := range errLens {
-		if errLens[i] == 0 {
-			continue
+	var errs []error
+	if cPackedErrs != nil {
+		// Unpack the errors from C chars into Golang error objects
+		// Invariant: cPackedErrs != nil implies len(cErrLens) == len(keys)
+		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
+		errs := make([]error, len(errLens))
+		offset := 0
+		for i := range errLens {
+			if errLens[i] == 0 {
+				continue
+			}
+			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
+			errStrLen := int(errLens[i])
+			errs[i] = fmt.Errorf(string(b[:errStrLen]))
+			offset += errStrLen
 		}
-		b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
-		errStrLen := int(errLens[i])
-		errs[i] = fmt.Errorf(string(b[:errStrLen]))
-		offset += errStrLen
+	} else {
+		// errs == nil indicates all puts succeeded
 	}
 
 	return errs
@@ -292,7 +298,15 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // - If keys[i] does exist, but its value is zero-length, values[i] == []byte{}.
 // - If there's an error looking up keys[i], values[i] == nil.
 //
-// The keys byte slice may be reused safely. GetMany takes a copy of
+// errs == nil if gets for all of the keys succeeded. Otherwise errs[i]
+// will hold the error for why get keys[i] failed. Caller can cleanly do:
+//
+// values, errs := GetMany(ro, keys)
+// if errs != nil {
+//      doErrsHandling(errs);
+// }
+//
+// The keys byte slice may be reused safely. Go takes a copy of
 // them before returning.
 func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	if db.closed {
@@ -303,16 +317,22 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	packedKeys, keyLens := toPackedBytes(keys)
+	var errs []error
 	if len(packedKeys) == 0 {
 		// If all the keys are empty, abide by the behavior of Get() when given
 		// an empty key and return the same (value, error) pair for all keys[i].
 		// This is the most consistent, though somewhat hilarious, behavior.
 		emptyKeyVal, err := db.Get(ro, []byte{})
-		errs := make([]error, len(keys))
+		if err != nil {
+			// only return the errs slice if there's at least one err
+			errs = make([]error, len(keys))
+		}
 		values := make([][]byte, len(keys))
 		for i := range keys {
 			values[i] = emptyKeyVal
-			errs[i] = err
+			if errs != nil {
+				errs[i] = err
+			}
 		}
 		return values, errs
 	}
@@ -331,34 +351,40 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	defer C.leveldb_free(unsafe.Pointer(cValLens))
 
 	// Unpack the errors from C chars into Golang error objects
-	errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-	errs := make([]error, len(errLens))
-	offset := 0
-	for i := range errLens {
-		if errLens[i] == 0 {
-			continue
+	if cPackedErrs != nil {
+		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
+		errs = make([]error, len(errLens))
+		offset := 0
+		for i := range errLens {
+			if errLens[i] == 0 {
+				continue
+			}
+			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
+			errStrLen := int(errLens[i])
+			errs[i] = fmt.Errorf(string(b[:errStrLen]))
+			offset += errStrLen
 		}
-		b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
-		errStrLen := int(errLens[i])
-		errs[i] = fmt.Errorf(string(b[:errStrLen]))
-		offset += errStrLen
+	} else {
+		// errs == nil indicates all gets succeeded
 	}
 
 	// Unpack the packed values from C chars into Golang byte slices
+	// Invariant: cValLens is NOT nil with len(keys) entries, cPackedVals
+	// may be nil if all gets failed with an error or the values of all keys are empty.
 	valueLens := (*[1 << 30]C.int)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
 	values := make([][]byte, len(valueLens))
-	offset = 0
+	valOffset := 0
 	for i := range valueLens {
 		if valueLens[i] > 0 {
-			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(offset)), C.int(valueLens[i]))
-			offset += int(valueLens[i])
-		} else if errs[i] == nil && valueLens[i] == 0 {
+			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(valOffset)), C.int(valueLens[i]))
+			valOffset += int(valueLens[i])
+		} else if (errs == nil || errs[i] == nil) && valueLens[i] == 0 {
 			// No error and no value, it means keys[i] is found but with empty value
 			values[i] = []byte{}
 		}
 		// else we have either:
-		// 1. errs[i] == nil && valueLens[i] < 0 indicating keys[i] is not found
-		// 2. errs[i] != nil indicating an error looking up keys[i].
+		// 1. (errs != nil && errs[i] == nil) && valueLens[i] < 0 indicating keys[i] is not found
+		// 2. (errs != nil && errs[i] != nil) indicating an error looking up keys[i].
 		// In both cases values[i] defaults to nil
 	}
 
