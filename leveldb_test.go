@@ -2,7 +2,6 @@ package levigo
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -441,20 +440,13 @@ func TestDBPutManyGetMany(t *testing.T) {
 		}
 	}
 }
-
-func __TestALongTime(t *testing.T) {
-	// We only want a reasonably available path to hold the new db
-	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("levigo-benchmark-dbgets-%d", rand.Int()))
-	// We'll be putting a db in its place
-	os.RemoveAll(tmpPath)
-
+func TestMemLeak(t *testing.T) {
+	dbname := ioutil.TempDir("", "levigo-memleak-")
 	options := NewOptions()
 	options.SetErrorIfExists(true)
 	options.SetCreateIfMissing(true)
 	ro := NewReadOptions()
 	wo := NewWriteOptions()
-	dbname := tmpPath
-	_ = DestroyDatabase(dbname, options)
 	db, err := Open(dbname, options)
 	defer os.RemoveAll(dbname)
 	if err != nil {
@@ -464,7 +456,7 @@ func __TestALongTime(t *testing.T) {
 
 	// Populate the db with some test key-value pairs
 	const fixedKeyLen = 20
-	const fixedValueLen = 256
+	const fixedValueLen = 1024 * 1024
 	keys := make([][]byte, 10000)
 	expectedValues := make([][]byte, len(keys))
 	for i := range keys {
@@ -500,12 +492,12 @@ func __TestALongTime(t *testing.T) {
 	}
 }
 
-// To get the benchmarks of multiple DB gets using Get() instead of the
-// GetMany() API, disable the flag like so:
-// go test -count=2 -run=^$ -bench=BenchmarkDBGets -_ldb_usegetmany=false
-var useGetMany = flag.Bool("_ldb_usegetmany", true, "By default uses uses GetMany() in favor of multiple calls of Get()")
-
 func BenchmarkDBGets(b *testing.B) {
+	b.Run("SingleGet", func(b *testing.B) { benchmarkDBGets(b, false) })
+	b.Run("MultiGet", func(b *testing.B) { benchmarkDBGets(b, true) })
+}
+
+func benchmarkDBGets(b *testing.B, useGetMany bool) {
 	dbname := ioutil.TempDir("", "levigo-benchmark-")
 	options := NewOptions()
 	options.SetErrorIfExists(true)
@@ -547,7 +539,7 @@ func BenchmarkDBGets(b *testing.B) {
 	b.SetBytes(int64(nb))
 
 	for i := 0; i < b.N; i++ {
-		if *useGetMany {
+		if useGetMany {
 			values, _ := db.GetMany(ro, keys)
 			runtime.KeepAlive(values)
 		} else {
