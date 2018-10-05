@@ -378,10 +378,8 @@ func TestDBPutManyGetMany(t *testing.T) {
 
 	// Populate the db with some test key-value pairs
 	errs = db.PutMany(wo, keys, expectedValues)
-	for i := range errs {
-		if errs[i] != nil {
-			t.Errorf("PutMany() failed for key[%d]: %v", i, errs[i])
-		}
+	if errs != nil {
+		t.Errorf("PutMany() should not fail for any keys")
 	}
 
 	values, errs := db.GetMany(ro, keys)
@@ -457,60 +455,6 @@ func TestDBPutManyGetMany(t *testing.T) {
 	for i := range emptyValues {
 		if emptyValues[i] == nil || len(emptyValues[i]) != 0 {
 			t.Errorf("expecting a zero-length, non-nil, empty-value for key %d", i)
-		}
-	}
-}
-func TestMemLeak(t *testing.T) {
-	dbname, err := ioutil.TempDir("", "levigo-memleak-")
-	if err != nil {
-		t.Fatalf("Failed to create db to run test")
-	}
-	options := NewOptions()
-	options.SetErrorIfExists(true)
-	options.SetCreateIfMissing(true)
-	ro := NewReadOptions()
-	wo := NewWriteOptions()
-	db, err := Open(dbname, options)
-	defer os.RemoveAll(dbname)
-	if err != nil {
-		t.Fatalf("Database could not be opened: %v", err)
-	}
-	defer db.Close()
-
-	// Populate the db with some test key-value pairs
-	const fixedKeyLen = 20
-	const fixedValueLen = 1024 * 1024
-	keys := make([][]byte, 10000)
-	expectedValues := make([][]byte, len(keys))
-	for i := range keys {
-		keys[i] = make([]byte, fixedKeyLen)
-		n, err := rand.Read(keys[i])
-		if n != len(keys[i]) || err != nil {
-			t.Fatalf("could not generate random keys")
-		}
-		expectedValues[i] = make([]byte, fixedValueLen)
-		n, err = rand.Read(expectedValues[i])
-		if n != len(expectedValues[i]) || err != nil {
-			t.Fatalf("could not generate random values")
-		}
-		err = db.Put(wo, keys[i], expectedValues[i])
-		if err != nil {
-			t.Errorf("Put failed: %v", err)
-		}
-	}
-
-	nb := 0
-	round := 0
-	fmt.Printf("Alloced:\n")
-	for {
-		round++
-
-		values, _ := db.GetMany(ro, keys)
-		for k := range values {
-			nb += len(values[k])
-		}
-		if round%1000 == 0 {
-			fmt.Printf("%d\n", nb)
 		}
 	}
 }
