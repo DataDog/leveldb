@@ -2,7 +2,6 @@ package levigo
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -429,12 +428,12 @@ func TestDBGetMany(t *testing.T) {
 	}
 }
 
-// To get the benchmarks of multiple DB gets using Get() instead of the
-// GetMany() API, disable the flag like so:
-// go test -count=2 -run=^$ -bench=BenchmarkDBGets -_ldb_usegetmany=false
-var useGetMany = flag.Bool("_ldb_usegetmany", true, "By default uses uses GetMany() in favor of multiple calls of Get()")
-
 func BenchmarkDBGets(b *testing.B) {
+	b.Run("SingleGet", func(b *testing.B) { benchmarkDBGets(b, false) })
+	b.Run("MultiGet", func(b *testing.B) { benchmarkDBGets(b, true) })
+}
+
+func benchmarkDBGets(b *testing.B, useGetMany bool) {
 	dbname := ioutil.TempDir("", "levigo-benchmark-")
 	options := NewOptions()
 	options.SetErrorIfExists(true)
@@ -476,7 +475,7 @@ func BenchmarkDBGets(b *testing.B) {
 	b.SetBytes(int64(nb))
 
 	for i := 0; i < b.N; i++ {
-		if *useGetMany {
+		if useGetMany {
 			values, _ := db.GetMany(ro, keys)
 			runtime.KeepAlive(values)
 		} else {
