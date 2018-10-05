@@ -336,6 +336,7 @@ func TestDBGetMany(t *testing.T) {
 	}
 	defer db.Close()
 
+	keyWithEmptyValue := []byte("I have empty value")
 	keys := [][]byte{
 		[]byte("hello world0"),
 		[]byte("hello world1"),
@@ -344,6 +345,7 @@ func TestDBGetMany(t *testing.T) {
 		[]byte{}, // Yes an empty byte slice as key is valid
 		[]byte("hello world4"),
 		nil, // yes a nil key is also valid, it's interpreted as an empty byte slice
+		keyWithEmptyValue,
 	}
 
 	emptyKeyValue := []byte("value for empty key")
@@ -355,7 +357,12 @@ func TestDBGetMany(t *testing.T) {
 		emptyKeyValue,
 		[]byte("value for hello world4"),
 		emptyKeyValue,
+		nil,
 	}
+	if len(keys) != len(expectedValues) {
+		t.Errorf("expecting len(keys) == len(expectedValues) as part of the test setup")
+	}
+
 	// Populate the db with some test key-value pairs
 	for i := range keys {
 		err := db.Put(wo, keys[i], expectedValues[i])
@@ -365,13 +372,13 @@ func TestDBGetMany(t *testing.T) {
 	}
 
 	values, errs := db.GetMany(ro, keys)
-	if len(values) != len(errs) {
-		t.Errorf("GetMany() mismatch values len and errs len")
+	if errs != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(values) != len(keys) {
+		t.Errorf("expecting len(values) == len(keys)")
 	}
 	for i := range keys {
-		if errs[i] != nil {
-			t.Errorf("GetMany() failed for key[%d]: %v", i, errs[i])
-		}
 		if bytes.Compare(expectedValues[i], values[i]) != 0 {
 			t.Errorf("values[%d] is not the same as expected: %v", i, expectedValues[i])
 		}
@@ -384,13 +391,11 @@ func TestDBGetMany(t *testing.T) {
 		[]byte("hello world5-NOT_FOUND"),
 	}
 	values, errs = db.GetMany(ro, keys2)
-	if len(values) != len(errs) {
-		t.Errorf("GetMany() mismatch values len and errs len")
+	if errs != nil {
+		t.Errorf("expecting all gets succeeded")
 	}
-	for i := range errs {
-		if errs[i] != nil {
-			t.Errorf("not expecting an error for key %d", i)
-		}
+	if len(values) != len(keys2) {
+		t.Errorf("expecting len(values) == len(keys2)")
 	}
 
 	if values[0] != nil {
@@ -415,15 +420,30 @@ func TestDBGetMany(t *testing.T) {
 	// as N Gets of the same empty key
 	emptyKeys := make([][]byte, 10)
 	values, errs = db.GetMany(ro, emptyKeys)
-	if len(values) != len(errs) {
-		t.Errorf("GetMany() mismatch values len and errs len")
+	if errs != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(values) != len(emptyKeys) {
+		t.Errorf("expecting len(values) == len(emptyKeys)")
 	}
 	for i := range values {
-		if errs[i] != nil {
-			t.Errorf("GetMany() for an empty key should return something")
-		}
 		if bytes.Compare(emptyKeyValue, values[i]) != 0 {
 			t.Errorf("GetMany() for an empty key should return the value under that key")
+		}
+	}
+
+	// Also verify GetMany with keys all of whose values are the empty value
+	keysWithEmptyValues := [][]byte{keyWithEmptyValue, keyWithEmptyValue, keyWithEmptyValue}
+	emptyValues, errs := db.GetMany(ro, keysWithEmptyValues)
+	if errs != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(emptyValues) != len(keysWithEmptyValues) {
+		t.Errorf("expecting len(emptyValues) == len(keysWithEmptyValues)")
+	}
+	for i := range emptyValues {
+		if emptyValues[i] == nil || len(emptyValues[i]) != 0 {
+			t.Errorf("expecting a zero-length, non-nil, empty-value for key %d", i)
 		}
 	}
 }
