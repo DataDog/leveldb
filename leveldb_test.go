@@ -441,7 +441,10 @@ func TestDBPutManyGetMany(t *testing.T) {
 	}
 }
 func TestMemLeak(t *testing.T) {
-	dbname := ioutil.TempDir("", "levigo-memleak-")
+	dbname, err := ioutil.TempDir("", "levigo-memleak-")
+	if err != nil {
+		t.Fatalf("Failed to create db to run test")
+	}
 	options := NewOptions()
 	options.SetErrorIfExists(true)
 	options.SetCreateIfMissing(true)
@@ -549,6 +552,64 @@ func benchmarkDBGets(b *testing.B, useGetMany bool) {
 			for j := range keys {
 				v, _ := db.Get(ro, keys[j])
 				runtime.KeepAlive(v)
+			}
+		}
+	}
+}
+
+func BenchmarkDBPuts(b *testing.B) {
+	b.Run("multiple-Put()s", func(b *testing.B) { benchmarkDBPuts(b, false) })
+	b.Run("one-Multiput()", func(b *testing.B) { benchmarkDBPuts(b, true) })
+}
+
+func benchmarkDBPuts(b *testing.B, usePutMany bool) {
+	dbname, err := ioutil.TempDir("", "levigo-benchmark-")
+	if err != nil {
+		b.Fatalf("Failed to create db for benchmark")
+	}
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	wo := NewWriteOptions()
+	db, err := Open(dbname, options)
+	if err != nil {
+		b.Fatalf("Database could not be opened: %v", err)
+	}
+	defer os.RemoveAll(dbname)
+	defer db.Close()
+
+	const fixedKeyLen = 20
+	const fixedValueLen = 128
+	keys := make([][]byte, 10000)
+	values := make([][]byte, len(keys))
+	nb := 0
+	for i := range keys {
+		keys[i] = make([]byte, fixedKeyLen)
+		n, err := rand.Read(keys[i])
+		if n != len(keys[i]) || err != nil {
+			b.Fatalf("could not generate random keys")
+		}
+		nb += len(keys[i])
+		values[i] = make([]byte, fixedValueLen)
+		n, err = rand.Read(values[i])
+		if n != len(values[i]) || err != nil {
+			b.Fatalf("could not generate random values")
+		}
+		nb += len(values[i])
+	}
+
+	b.ResetTimer()
+	b.SetBytes(int64(nb))
+
+	for i := 0; i < b.N; i++ {
+		if usePutMany {
+			db.PutMany(wo, keys, values)
+		} else {
+			for j := range keys {
+				err = db.Put(wo, keys[j], values[j])
+				if err != nil {
+					b.Errorf("Put failed: %v", err)
+				}
 			}
 		}
 	}
