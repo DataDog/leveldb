@@ -223,17 +223,22 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // - If keys[i] does exist, but its value is zero-length, values[i] == []byte{}.
 // - If there's an error looking up keys[i], values[i] == nil.
 //
-// errs == nil if gets for all of the keys succeeded. Otherwise errs[i]
-// will hold the error for why get keys[i] failed. Caller can cleanly do:
+// err == nil if gets for all of the keys succeeded. Otherwise err be a MultiKeyError
+// that caller may cleanly handle like:
 //
-// values, errs := GetMany(ro, keys)
-// if errs != nil {
-//      doErrsHandling(errs);
+// values, err := GetMany(ro, keys)
+// if err != nil {
+//      if mke, ok := err.(*levigo.MultiKeyError); ok {
+//          errs, indexes := mke.Errors(), mke.FailedKeyIndexes()
+//          for i := range errs {
+//              fmt.Printf("Failed for key %d, error: %s", indexes[i], errs[i])
+//          }
+//      }
 // }
 //
 // The keys byte slice may be reused safely. Go takes a copy of
 // them before returning.
-func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
+func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, error) {
 	if db.closed {
 		panic(ErrDBClosed)
 	}
@@ -248,24 +253,19 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 		cKeyLens[i] = C.size_t(len(keys[i]))
 	}
 	packedKeysBytes := packedKeysBuffer.Bytes()
-	var errs []error
 	if len(packedKeysBytes) == 0 {
 		// If all the keys are empty, abide by the behavior of Get() when given
 		// an empty key and return the same (value, error) pair for all keys[i].
 		// This is the most consistent, though somewhat hilarious, behavior.
 		emptyKeyVal, err := db.Get(ro, []byte{})
 		if err != nil {
-			// only return the errs slice if there's at least one err
-			errs = make([]error, len(keys))
+			return nil, fmt.Errorf("singleton error from GetMany() on the same empty key: %s", err)
 		}
 		values := make([][]byte, len(keys))
 		for i := range keys {
 			values[i] = emptyKeyVal
-			if errs != nil {
-				errs[i] = err
-			}
 		}
-		return values, errs
+		return values, nil
 	}
 
 	var cPackedVals *C.char
@@ -281,22 +281,27 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	defer C.leveldb_free(unsafe.Pointer(cPackedVals))
 	defer C.leveldb_free(unsafe.Pointer(cValLens))
 
-	// Unpack the errors from C chars into Golang error objects
+	// Unpack the errors from C chars into Golang error objects which is then wrapped in MultiKeyError
+	var err error
 	if cPackedErrs != nil {
 		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-		errs = make([]error, len(errLens))
 		offset := 0
+		var multiKeyErr *MultiKeyError
 		for i := range errLens {
 			if errLens[i] == 0 {
 				continue
 			}
 			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
 			errStrLen := int(errLens[i])
-			errs[i] = fmt.Errorf(string(b[:errStrLen]))
+			if multiKeyErr == nil {
+				multiKeyErr = &MultiKeyError{}
+			}
+			multiKeyErr.addKeyErr(i, fmt.Errorf(string(b[:errStrLen])))
 			offset += errStrLen
 		}
+		err = multiKeyErr
 	} else {
-		// errs == nil indicates all gets succeeded
+		// err == nil indicates all gets succeeded
 	}
 
 	// Unpack the packed values from C chars into Golang byte slices
@@ -309,17 +314,82 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 		if valueLens[i] > 0 {
 			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(valOffset)), C.int(valueLens[i]))
 			valOffset += int(valueLens[i])
-		} else if (errs == nil || errs[i] == nil) && valueLens[i] == 0 {
+		} else if (err == nil || err.(*MultiKeyError).errAt(i) == nil) && valueLens[i] == 0 {
 			// No error and no value, it means keys[i] is found but with empty value
 			values[i] = []byte{}
 		}
 		// else we have either:
-		// 1. (errs != nil && errs[i] == nil) && valueLens[i] < 0 indicating keys[i] is not found
-		// 2. (errs != nil && errs[i] != nil) indicating an error looking up keys[i].
+		// 1. (err != nil && multiKeyErr.errAt(i) == nil) && valueLens[i] < 0 indicating keys[i] is not found
+		// 2. (err != nil && multiKeyErr.errAt(i) != nil) indicating an error looking up keys[i].
 		// In both cases values[i] defaults to nil
 	}
 
-	return values, errs
+	return values, err
+}
+
+// MultiKeyError encapsulates multiple errors encountered in a Get/Put-Many() call,
+// behind the errors.error interface. Caller may cast the generic error object to
+// a MultiKeyError and call Errors() and/or FailedKeyIndexes() to get additional details.
+type MultiKeyError struct {
+	// invariant: errsByIdx is either nil or has at least ONE entry, it's never an empty map
+	errsByIdx map[int]error
+}
+
+func (mke *MultiKeyError) Error() string {
+	if mke.errsByIdx == nil {
+		return ""
+	}
+	return "Multiple keys encountered error, cast via err.(*levigo.MultiKeyErrors).Errors() to get all the errors"
+}
+
+func (mke *MultiKeyError) GoString() string {
+	return fmt.Sprintf("*%#v", *mke)
+}
+
+// FailedKeyIndexes() gives a list of indexes for which Get/PutMany() failed
+// for key at keys[indexes[i]]; e.g. if this returns[2, 3, 7], it means
+// Get/PutMany({keys[2], keys[3], keys[7]}) failed.
+func (mke *MultiKeyError) FailedKeyIndexes() []int {
+	if mke.errsByIdx == nil {
+		return nil
+	}
+
+	indexes := make([]int, 0, len(mke.errsByIdx))
+	for i := range mke.errsByIdx {
+		indexes = append(indexes, i)
+	}
+	return indexes
+}
+
+// Errors() gives specific errors failed for each key from FailedKeyIndexes()
+func (mke *MultiKeyError) Errors() []error {
+	if mke.errsByIdx == nil {
+		return nil
+	}
+
+	errs := make([]error, 0, len(mke.errsByIdx))
+	for i := range mke.errsByIdx {
+		errs = append(errs, mke.errsByIdx[i])
+	}
+	return errs
+}
+
+func (mke *MultiKeyError) addKeyErr(i int, err error) {
+	if mke.errsByIdx == nil {
+		mke.errsByIdx = make(map[int]error)
+	}
+	mke.errsByIdx[i] = err
+}
+
+func (mke *MultiKeyError) errAt(i int) error {
+	if mke.errsByIdx == nil {
+		return nil
+	}
+	err, ok := mke.errsByIdx[i]
+	if !ok {
+		return nil
+	}
+	return err
 }
 
 // Delete removes the data associated with the key from the database.

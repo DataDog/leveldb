@@ -2,6 +2,7 @@ package levigo
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -371,8 +372,9 @@ func TestDBGetMany(t *testing.T) {
 		}
 	}
 
-	values, errs := db.GetMany(ro, keys)
-	if errs != nil {
+	var values [][]byte
+	values, err = db.GetMany(ro, keys)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(keys) {
@@ -390,8 +392,8 @@ func TestDBGetMany(t *testing.T) {
 		[]byte{}, // Yes an empty byte slice as key is valid
 		[]byte("hello world5-NOT_FOUND"),
 	}
-	values, errs = db.GetMany(ro, keys2)
-	if errs != nil {
+	values, err = db.GetMany(ro, keys2)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(keys2) {
@@ -411,16 +413,16 @@ func TestDBGetMany(t *testing.T) {
 		t.Errorf("Expecting non-existant key to return value of nil")
 	}
 
-	values, errs = db.GetMany(ro, nil)
-	if values != nil || errs != nil {
+	values, err = db.GetMany(ro, nil)
+	if values != nil || err != nil {
 		t.Errorf("GetMany(): on nil slice should return nil, nil")
 	}
 
 	// Calling GetMany on a slice of N nil slices will be interpreted
 	// as N Gets of the same empty key
 	emptyKeys := make([][]byte, 10)
-	values, errs = db.GetMany(ro, emptyKeys)
-	if errs != nil {
+	values, err = db.GetMany(ro, emptyKeys)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(emptyKeys) {
@@ -434,8 +436,8 @@ func TestDBGetMany(t *testing.T) {
 
 	// Also verify GetMany with keys all of whose values are the empty value
 	keysWithEmptyValues := [][]byte{keyWithEmptyValue, keyWithEmptyValue, keyWithEmptyValue}
-	emptyValues, errs := db.GetMany(ro, keysWithEmptyValues)
-	if errs != nil {
+	emptyValues, err := db.GetMany(ro, keysWithEmptyValues)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(emptyValues) != len(keysWithEmptyValues) {
@@ -448,6 +450,34 @@ func TestDBGetMany(t *testing.T) {
 	}
 }
 
+func TestMultiKeyErrors(t *testing.T) {
+	mke := &MultiKeyError{}
+	mke.addKeyErr(2, errors.New("Error foo"))
+	mke.addKeyErr(5, errors.New("Error bar"))
+	mke.addKeyErr(7, errors.New("Error fooz"))
+	var err error = mke
+	_, ok := err.(*MultiKeyError)
+	if !ok {
+		t.Errorf("type assertion failed")
+	}
+
+	errs, indexes := mke.Errors(), mke.FailedKeyIndexes()
+	if errs == nil || len(errs) == 0 {
+		t.Errorf("expecting errors")
+	}
+	if indexes == nil || len(indexes) == 0 {
+		t.Errorf("expecting failed indexes")
+	}
+	if len(errs) != len(indexes) {
+		t.Errorf("expecting len(errs) == len(indexes)")
+	}
+	for i := range errs {
+		if errs[i] == nil {
+			t.Errorf("Expecting error at %d", i)
+		}
+		t.Logf("For key %d, packed error: %s", indexes[i], errs[i])
+	}
+}
 func BenchmarkDBGets(b *testing.B) {
 	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
 	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
