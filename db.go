@@ -184,19 +184,18 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 //
 // The keys and values byte slices may be reused safely. PutMany takes a copy of
 // them before returning.
-func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) []error {
+func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) error {
 	if db.closed {
 		panic(ErrDBClosed)
 	}
 
 	if len(keys) == 0 {
-		return []error{errors.New("cannot call PutMany() with len(keys) == 0")}
+		return errors.New("cannot call PutMany() with len(keys) == 0")
 	}
 	if len(values) == 0 {
-		return []error{errors.New("cannot call PutMany() with len(values) == 0")}
 	}
 	if len(keys) != len(values) {
-		return []error{errors.New("cannot call PutMany() with len(keys) != len(values)")}
+		return errors.New("cannot call PutMany() with len(keys) != len(values)")
 	}
 
 	packedKeys, keyLens := toPackedBytes(keys)
@@ -204,7 +203,7 @@ func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) []error {
 	if len(packedKeys) == 0 {
 		// Unlike GetMany(), calling PutMany() with say 2 empty key slices is likely
 		// an error as it's not clear which value should be assigned to the empty key
-		return []error{errors.New("cannot call PutMany() with all empty key slices")}
+		return errors.New("cannot call PutMany() with all empty key slices")
 	}
 
 	var cPackedVals *C.char
@@ -230,27 +229,31 @@ func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) []error {
 	defer C.leveldb_free(unsafe.Pointer(cPackedErrs))
 	defer C.leveldb_free(unsafe.Pointer(cErrLens))
 
-	var errs []error
+	var err error
 	if cPackedErrs != nil {
 		// Unpack the errors from C chars into Golang error objects
 		// Invariant: cPackedErrs != nil implies len(cErrLens) == len(keys)
 		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-		errs := make([]error, len(errLens))
 		offset := 0
+		var multiKeyErr *MultiKeyError
 		for i := range errLens {
 			if errLens[i] == 0 {
 				continue
 			}
 			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
 			errStrLen := int(errLens[i])
-			errs[i] = fmt.Errorf(string(b[:errStrLen]))
+			if multiKeyErr == nil {
+				multiKeyErr = &MultiKeyError{}
+			}
+			multiKeyErr.addKeyErr(i, fmt.Errorf(string(b[:errStrLen])))
 			offset += errStrLen
 		}
+		err = multiKeyErr
 	} else {
-		// errs == nil indicates all puts succeeded
+		// err == nil indicates all puts succeeded
 	}
 
-	return errs
+	return err
 }
 
 // Get returns the data associated with the key from the database.
@@ -298,17 +301,22 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // - If keys[i] does exist, but its value is zero-length, values[i] == []byte{}.
 // - If there's an error looking up keys[i], values[i] == nil.
 //
-// errs == nil if gets for all of the keys succeeded. Otherwise errs[i]
-// will hold the error for why get keys[i] failed. Caller can cleanly do:
+// err == nil if gets for all of the keys succeeded. Otherwise err be a MultiKeyError
+// that caller may cleanly handle like:
 //
-// values, errs := GetMany(ro, keys)
-// if errs != nil {
-//      doErrsHandling(errs);
+// values, err := GetMany(ro, keys)
+// if err != nil {
+//      if mke, ok := err.(*levigo.MultiKeyError); ok {
+//          errsByKeyIdx := mke.ErrorsByKeyIdx()
+//          for idx, err := range errsByKeyIdx {
+//              fmt.Printf("Failed for key %s, error: %s", keys[idx], err)
+//          }
+//      }
 // }
 //
 // The keys byte slice may be reused safely. Go takes a copy of
 // them before returning.
-func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
+func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, error) {
 	if db.closed {
 		panic(ErrDBClosed)
 	}
@@ -317,24 +325,19 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	}
 
 	packedKeys, keyLens := toPackedBytes(keys)
-	var errs []error
 	if len(packedKeys) == 0 {
 		// If all the keys are empty, abide by the behavior of Get() when given
 		// an empty key and return the same (value, error) pair for all keys[i].
 		// This is the most consistent, though somewhat hilarious, behavior.
 		emptyKeyVal, err := db.Get(ro, []byte{})
 		if err != nil {
-			// only return the errs slice if there's at least one err
-			errs = make([]error, len(keys))
+			return nil, fmt.Errorf("singleton error from GetMany() on the same empty key: %s", err)
 		}
 		values := make([][]byte, len(keys))
 		for i := range keys {
 			values[i] = emptyKeyVal
-			if errs != nil {
-				errs[i] = err
-			}
 		}
-		return values, errs
+		return values, nil
 	}
 
 	var cPackedVals *C.char
@@ -350,22 +353,27 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	defer C.leveldb_free(unsafe.Pointer(cPackedVals))
 	defer C.leveldb_free(unsafe.Pointer(cValLens))
 
-	// Unpack the errors from C chars into Golang error objects
+	// Unpack the errors from C chars into Golang error objects which is then wrapped in MultiKeyError
+	var err error
 	if cPackedErrs != nil {
 		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
-		errs = make([]error, len(errLens))
 		offset := 0
+		var multiKeyErr *MultiKeyError
 		for i := range errLens {
 			if errLens[i] == 0 {
 				continue
 			}
 			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
 			errStrLen := int(errLens[i])
-			errs[i] = fmt.Errorf(string(b[:errStrLen]))
+			if multiKeyErr == nil {
+				multiKeyErr = &MultiKeyError{}
+			}
+			multiKeyErr.addKeyErr(i, fmt.Errorf(string(b[:errStrLen])))
 			offset += errStrLen
 		}
+		err = multiKeyErr
 	} else {
-		// errs == nil indicates all gets succeeded
+		// err == nil indicates all gets succeeded
 	}
 
 	// Unpack the packed values from C chars into Golang byte slices
@@ -378,17 +386,17 @@ func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, []error) {
 		if valueLens[i] > 0 {
 			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(valOffset)), C.int(valueLens[i]))
 			valOffset += int(valueLens[i])
-		} else if (errs == nil || errs[i] == nil) && valueLens[i] == 0 {
+		} else if (err == nil || err.(*MultiKeyError).errAt(i) == nil) && valueLens[i] == 0 {
 			// No error and no value, it means keys[i] is found but with empty value
 			values[i] = []byte{}
 		}
 		// else we have either:
-		// 1. (errs != nil && errs[i] == nil) && valueLens[i] < 0 indicating keys[i] is not found
-		// 2. (errs != nil && errs[i] != nil) indicating an error looking up keys[i].
+		// 1. (err != nil && multiKeyErr.errAt(i) == nil) && valueLens[i] < 0 indicating keys[i] is not found
+		// 2. (err != nil && multiKeyErr.errAt(i) != nil) indicating an error looking up keys[i].
 		// In both cases values[i] defaults to nil
 	}
 
-	return values, errs
+	return values, err
 }
 
 func toPackedBytes(slices [][]byte) ([]byte, []C.size_t) {

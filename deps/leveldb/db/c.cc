@@ -206,10 +206,6 @@ extern void leveldb_putmany(
     }
 
     if (!s.ok()) {
-      errs[i] = s.ToString();
-      (*errlens)[i] = errs[i].length();
-      packed_errs_len += errs[i].length();
-    } else {
         std::string errStr = s.ToString();
         // Most of the time getmany won't experience any error for any
         // of the keys so we can avoid the cost of allocation and only

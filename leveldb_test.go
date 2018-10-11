@@ -2,6 +2,7 @@ package levigo
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -336,16 +337,16 @@ func TestDBPutManyGetMany(t *testing.T) {
 	}
 	defer db.Close()
 
-	errs := db.PutMany(wo, nil, [][]byte{[]byte("hi")})
-	if len(errs) != 1 || errs[0] == nil {
+	err = db.PutMany(wo, nil, [][]byte{[]byte("hi")})
+	if err == nil {
 		t.Errorf("Expecting failure for PutMany() with nil keys")
 	}
-	errs = db.PutMany(wo, [][]byte{[]byte("hi")}, nil)
-	if len(errs) != 1 || errs[0] == nil {
+	err = db.PutMany(wo, [][]byte{[]byte("hi")}, nil)
+	if err == nil {
 		t.Errorf("Expecting failure for PutMany() with nil values")
 	}
-	errs = db.PutMany(wo, [][]byte{[]byte("key-1"), []byte("key-2")}, [][]byte{[]byte("value-1")})
-	if len(errs) != 1 || errs[0] == nil {
+	err = db.PutMany(wo, [][]byte{[]byte("key-1"), []byte("key-2")}, [][]byte{[]byte("value-1")})
+	if err == nil {
 		t.Errorf("Expecting failure for PutMany() with len(keys) != len(values)")
 	}
 
@@ -377,13 +378,14 @@ func TestDBPutManyGetMany(t *testing.T) {
 	}
 
 	// Populate the db with some test key-value pairs
-	errs = db.PutMany(wo, keys, expectedValues)
-	if errs != nil {
+	err = db.PutMany(wo, keys, expectedValues)
+	if err != nil {
 		t.Errorf("PutMany() should not fail for any keys")
 	}
 
-	values, errs := db.GetMany(ro, keys)
-	if errs != nil {
+	var values [][]byte
+	values, err = db.GetMany(ro, keys)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(keys) {
@@ -401,8 +403,8 @@ func TestDBPutManyGetMany(t *testing.T) {
 		[]byte{}, // Yes an empty byte slice as key is valid
 		[]byte("hello world5-NOT_FOUND"),
 	}
-	values, errs = db.GetMany(ro, keys2)
-	if errs != nil {
+	values, err = db.GetMany(ro, keys2)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(keys2) {
@@ -422,16 +424,16 @@ func TestDBPutManyGetMany(t *testing.T) {
 		t.Errorf("Expecting non-existant key to return value of nil")
 	}
 
-	values, errs = db.GetMany(ro, nil)
-	if values != nil || errs != nil {
+	values, err = db.GetMany(ro, nil)
+	if values != nil || err != nil {
 		t.Errorf("GetMany(): on nil slice should return nil, nil")
 	}
 
 	// Calling GetMany on a slice of N nil slices will be interpreted
 	// as N Gets of the same empty key
 	emptyKeys := make([][]byte, 10)
-	values, errs = db.GetMany(ro, emptyKeys)
-	if errs != nil {
+	values, err = db.GetMany(ro, emptyKeys)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(values) != len(emptyKeys) {
@@ -445,8 +447,8 @@ func TestDBPutManyGetMany(t *testing.T) {
 
 	// Also verify GetMany with keys all of whose values are the empty value
 	keysWithEmptyValues := [][]byte{keyWithEmptyValue, keyWithEmptyValue, keyWithEmptyValue}
-	emptyValues, errs := db.GetMany(ro, keysWithEmptyValues)
-	if errs != nil {
+	emptyValues, err := db.GetMany(ro, keysWithEmptyValues)
+	if err != nil {
 		t.Errorf("expecting all gets succeeded")
 	}
 	if len(emptyValues) != len(keysWithEmptyValues) {
@@ -459,6 +461,37 @@ func TestDBPutManyGetMany(t *testing.T) {
 	}
 }
 
+func TestMultiKeyErrors(t *testing.T) {
+	expectedKeyIdxToErr := map[int]error{
+		11: errors.New("Error bar for key-11"),
+		2:  errors.New("Error foo for key-2"),
+		5:  errors.New("Error foo for key-5"),
+		7:  errors.New("Error foo for key-7"),
+	}
+
+	mke := &MultiKeyError{}
+	for keyIdx, err := range expectedKeyIdxToErr {
+		mke.addKeyErr(keyIdx, err)
+	}
+	var err error = mke
+	_, ok := err.(*MultiKeyError)
+	if !ok {
+		t.Errorf("type assertion failed")
+	}
+
+	errByKeyIdx := mke.ErrorsByKeyIdx()
+	if len(errByKeyIdx) != len(expectedKeyIdxToErr) {
+		t.Errorf("expecting %d errors", len(expectedKeyIdxToErr))
+	}
+
+	t.Logf("multikey-error str: %s", mke.Error())
+	for keyIdx, err := range errByKeyIdx {
+		t.Logf("For key index %d, error: %s", keyIdx, err)
+		if err != expectedKeyIdxToErr[keyIdx] {
+			t.Errorf("Expecting key index %d holding error %s, got %s instead", keyIdx, expectedKeyIdxToErr[keyIdx], err)
+		}
+	}
+}
 func BenchmarkDBGets(b *testing.B) {
 	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
 	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
