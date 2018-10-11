@@ -6,7 +6,7 @@ import (
 
 // MultiKeyError encapsulates multiple errors encountered in a Get/Put-Many() call,
 // behind the errors.error interface. Caller may cast the generic error object to
-// a MultiKeyError and call Errors() and/or FailedKeyIndexes() to get additional details.
+// a MultiKeyError and call ErrorsByKeyIdx() to get all the errors by the failed key index.
 type MultiKeyError struct {
 	// invariant: errsByIdx is either nil or has at least ONE entry, it's never an empty map
 	errsByIdx map[int]error
