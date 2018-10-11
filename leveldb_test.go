@@ -471,6 +471,7 @@ func TestMultiKeyErrors(t *testing.T) {
 	if len(errs) != len(indexes) {
 		t.Errorf("expecting len(errs) == len(indexes)")
 	}
+	t.Logf("multikey-error content: %s", mke.Error())
 	for i := range errs {
 		if errs[i] == nil {
 			t.Errorf("Expecting error at %d", i)
