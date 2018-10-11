@@ -230,8 +230,8 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // if err != nil {
 //      if mke, ok := err.(*levigo.MultiKeyError); ok {
 //          errsByKeyIdx := mke.ErrorsByKeyIdx()
-//          for idx := range errsByKeyIdx {
-//              fmt.Printf("Failed for key %s, error: %s", keys[idx], errs[i])
+//          for idx, err := range errsByKeyIdx {
+//              fmt.Printf("Failed for key %s, error: %s", keys[idx], err)
 //          }
 //      }
 // }
