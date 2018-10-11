@@ -24,7 +24,9 @@ void levigo_leveldb_approximate_sizes(
 import "C"
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -211,6 +213,118 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 
 	defer C.leveldb_free(unsafe.Pointer(value))
 	return C.GoBytes(unsafe.Pointer(value), C.int(vallen)), nil
+}
+
+// GetMany returns the values associated with keys from the database.
+//
+// GetMany fills in the entries of values consistent with Get():
+// - If keys[i] exists in the database with non-zero value, values[i] holds its non-zero len []byte slice.
+// - If keys[i] does not exist in the database, values[i] == nil.
+// - If keys[i] does exist, but its value is zero-length, values[i] == []byte{}.
+// - If there's an error looking up keys[i], values[i] == nil.
+//
+// err == nil if gets for all of the keys succeeded. Otherwise err be a MultiKeyError
+// that caller may cleanly handle like:
+//
+// values, err := GetMany(ro, keys)
+// if err != nil {
+//      if mke, ok := err.(*levigo.MultiKeyError); ok {
+//          errsByKeyIdx := mke.ErrorsByKeyIdx()
+//          for idx, err := range errsByKeyIdx {
+//              fmt.Printf("Failed for key %s, error: %s", keys[idx], err)
+//          }
+//      }
+// }
+//
+// The keys byte slice may be reused safely. Go takes a copy of
+// them before returning.
+func (db *DB) GetMany(ro *ReadOptions, keys [][]byte) ([][]byte, error) {
+	if db.closed {
+		panic(ErrDBClosed)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	var packedKeysBuffer bytes.Buffer
+	cKeyLens := make([]C.size_t, len(keys))
+	for i := range keys {
+		packedKeysBuffer.Write(keys[i])
+		cKeyLens[i] = C.size_t(len(keys[i]))
+	}
+	packedKeysBytes := packedKeysBuffer.Bytes()
+	if len(packedKeysBytes) == 0 {
+		// If all the keys are empty, abide by the behavior of Get() when given
+		// an empty key and return the same (value, error) pair for all keys[i].
+		// This is the most consistent, though somewhat hilarious, behavior.
+		emptyKeyVal, err := db.Get(ro, []byte{})
+		if err != nil {
+			return nil, fmt.Errorf("singleton error from GetMany() on the same empty key: %s", err)
+		}
+		values := make([][]byte, len(keys))
+		for i := range keys {
+			values[i] = emptyKeyVal
+		}
+		return values, nil
+	}
+
+	var cPackedVals *C.char
+	var cValLens *C.int
+	var cPackedErrs *C.char
+	var cErrLens *C.size_t
+	C.leveldb_getmany(
+		db.Ldb, ro.Opt, (*C.char)(unsafe.Pointer(&packedKeysBytes[0])), C.size_t(len(keys)), &cKeyLens[0],
+		&cPackedVals, &cValLens,
+		&cPackedErrs, &cErrLens)
+	defer C.leveldb_free(unsafe.Pointer(cPackedErrs))
+	defer C.leveldb_free(unsafe.Pointer(cErrLens))
+	defer C.leveldb_free(unsafe.Pointer(cPackedVals))
+	defer C.leveldb_free(unsafe.Pointer(cValLens))
+
+	// Unpack the errors from C chars into Golang error objects which is then wrapped in MultiKeyError
+	var err error
+	if cPackedErrs != nil {
+		errLens := (*[1 << 30]C.size_t)(unsafe.Pointer(cErrLens))[:len(keys):len(keys)]
+		offset := 0
+		var multiKeyErr *MultiKeyError
+		for i := range errLens {
+			if errLens[i] == 0 {
+				continue
+			}
+			b := C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedErrs))+uintptr(offset)), C.int(errLens[i]))
+			errStrLen := int(errLens[i])
+			if multiKeyErr == nil {
+				multiKeyErr = &MultiKeyError{}
+			}
+			multiKeyErr.addKeyErr(i, fmt.Errorf(string(b[:errStrLen])))
+			offset += errStrLen
+		}
+		err = multiKeyErr
+	} else {
+		// err == nil indicates all gets succeeded
+	}
+
+	// Unpack the packed values from C chars into Golang byte slices
+	// Invariant: cValLens is NOT nil with len(keys) entries, cPackedVals
+	// may be nil if all gets failed with an error or the values of all keys are empty.
+	valueLens := (*[1 << 30]C.int)(unsafe.Pointer(cValLens))[:len(keys):len(keys)]
+	values := make([][]byte, len(valueLens))
+	valOffset := 0
+	for i := range valueLens {
+		if valueLens[i] > 0 {
+			values[i] = C.GoBytes(unsafe.Pointer(uintptr(unsafe.Pointer(cPackedVals))+uintptr(valOffset)), C.int(valueLens[i]))
+			valOffset += int(valueLens[i])
+		} else if (err == nil || err.(*MultiKeyError).errAt(i) == nil) && valueLens[i] == 0 {
+			// No error and no value, it means keys[i] is found but with empty value
+			values[i] = []byte{}
+		}
+		// else we have either:
+		// 1. (err != nil && multiKeyErr.errAt(i) == nil) && valueLens[i] < 0 indicating keys[i] is not found
+		// 2. (err != nil && multiKeyErr.errAt(i) != nil) indicating an error looking up keys[i].
+		// In both cases values[i] defaults to nil
+	}
+
+	return values, err
 }
 
 // Delete removes the data associated with the key from the database.

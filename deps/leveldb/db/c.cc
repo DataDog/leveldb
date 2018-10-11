@@ -215,6 +215,92 @@ char* leveldb_get(
   return result;
 }
 
+void leveldb_getmany(
+    leveldb_t* db,
+    const leveldb_readoptions_t* options,
+    const char* packed_keys,
+    size_t num_keys,
+    const size_t* keylens,
+    char** packed_vals,
+    int** vallens, // must be signed int as (*vallens)[i] could be set to -1 to distinguish not-found from an empty value
+    char** packed_errs,
+    size_t** errlens) {
+  // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
+  // the heap which the caller in go-land should free via C.leveldb_free()
+  *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
+
+  int key_offset = 0;
+  std::vector<std::string> values(num_keys);
+  int packed_vals_len = 0;
+  std::vector<std::string> errs;
+  int packed_errs_len = 0;
+
+  for (int i = 0; i < num_keys; i++) {
+    Slice key(const_cast<char*>(&(packed_keys[key_offset])), keylens[i]);
+    key_offset += keylens[i];
+
+    Status s = db->rep->Get(options->rep, key, &(values[i]));
+    (*vallens)[i] = 0;
+    if (s.ok()) {
+      (*vallens)[i] = values[i].size();
+      packed_vals_len += values[i].size();
+    } else {
+      if (s.IsNotFound()) {
+        // Key is not in db, not an error
+        (*vallens)[i] = -1;
+      } else {
+        std::string errStr = s.ToString();
+        // Most of the time getmany won't experience any error for any
+        // of the keys so we can avoid the cost of allocation and only
+        // lazy-initialize if there's at least one error
+        if (errs.empty()) {
+          *errlens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
+          // All errlens[i] and errs[i] must be properly initialized, to 0 and ""
+          memset(*errlens, 0, sizeof(size_t) * num_keys);
+          errs = std::vector<std::string>(num_keys);
+        }
+        errs[i] = errStr;
+        (*errlens)[i] = errStr.length();
+        packed_errs_len += errStr.length();
+      }
+    }
+  }
+
+  // cgo only supports simple type conversions between c<->go for int/char
+  // and simple linear array of ints/chars. To pass back multiple values
+  // (arrays of char arrays), we pack all of them into one malloc()-ed char
+  // array, `packed_vals`, with an array of offsets, `vallens`. Caller can then
+  // use them together to unpack the values
+  int offset = 0;
+  if (packed_vals_len > 0) {
+    *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
+    for (int i = 0; i < values.size(); i++) {
+      if (values[i].length() > 0) {
+        memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
+        offset += values[i].length();
+      }
+    }
+  } else {
+    // Either all gets failed or the values of all keys is the empty byte array
+     *packed_vals = NULL;
+  }
+
+  // Do the same for errors
+  offset = 0;
+  if (packed_errs_len > 0) {
+    *packed_errs = reinterpret_cast<char*>(malloc(packed_errs_len));
+    for (int i = 0; i < errs.size(); i++) {
+      if (errs[i].length() > 0) {
+        memcpy(&((*packed_errs)[offset]), errs[i].data(), errs[i].length());
+        offset += errs[i].length();
+      }
+    }
+  } else {
+    // Caller can use (*packed_errs == NULL) as a sign that there were no errors
+    *packed_errs = NULL;
+  }
+}
+
 leveldb_iterator_t* leveldb_create_iterator(
     leveldb_t* db,
     const leveldb_readoptions_t* options) {

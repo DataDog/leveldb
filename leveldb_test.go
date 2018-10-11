@@ -2,10 +2,13 @@ package levigo
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -315,6 +318,228 @@ func TestIterationValidityLimits(t *testing.T) {
 	it.Seek([]byte("bat"))
 	if !it.Valid() {
 		t.Errorf("Iterator should be valid again")
+	}
+}
+
+// Tests DataDog-introduced special menu item GetMany()
+func TestDBGetMany(t *testing.T) {
+	dbname := tempDir(t)
+	defer deleteDBDirectory(t, dbname)
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	ro := NewReadOptions()
+	wo := NewWriteOptions()
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	if err != nil {
+		t.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	keyWithEmptyValue := []byte("I have empty value")
+	keys := [][]byte{
+		[]byte("hello world0"),
+		[]byte("hello world1"),
+		[]byte("hello world2"),
+		[]byte("hello world3"),
+		[]byte{}, // Yes an empty byte slice as key is valid
+		[]byte("hello world4"),
+		nil, // yes a nil key is also valid, it's interpreted as an empty byte slice
+		keyWithEmptyValue,
+	}
+
+	emptyKeyValue := []byte("value for empty key")
+	expectedValues := [][]byte{
+		[]byte("value for hello world0"),
+		[]byte("value for hello world1"),
+		[]byte("value for hello world2"),
+		[]byte("value for hello world3"),
+		emptyKeyValue,
+		[]byte("value for hello world4"),
+		emptyKeyValue,
+		nil,
+	}
+	if len(keys) != len(expectedValues) {
+		t.Errorf("expecting len(keys) == len(expectedValues) as part of the test setup")
+	}
+
+	// Populate the db with some test key-value pairs
+	for i := range keys {
+		err := db.Put(wo, keys[i], expectedValues[i])
+		if err != nil {
+			t.Errorf("Put failed: %v", err)
+		}
+	}
+
+	var values [][]byte
+	values, err = db.GetMany(ro, keys)
+	if err != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(values) != len(keys) {
+		t.Errorf("expecting len(values) == len(keys)")
+	}
+	for i := range keys {
+		if bytes.Compare(expectedValues[i], values[i]) != 0 {
+			t.Errorf("values[%d] is not the same as expected: %v", i, expectedValues[i])
+		}
+	}
+
+	keys2 := [][]byte{
+		[]byte("hello world0-NOT_FOUND"),
+		[]byte("hello world1"),
+		[]byte{}, // Yes an empty byte slice as key is valid
+		[]byte("hello world5-NOT_FOUND"),
+	}
+	values, err = db.GetMany(ro, keys2)
+	if err != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(values) != len(keys2) {
+		t.Errorf("expecting len(values) == len(keys2)")
+	}
+
+	if values[0] != nil {
+		t.Errorf("Expecting non-existant key to return value of nil")
+	}
+	if bytes.Compare(expectedValues[1], values[1]) != 0 {
+		t.Errorf("values[%d] is not the same as expected: %v", 1, expectedValues[1])
+	}
+	if bytes.Compare(emptyKeyValue, values[2]) != 0 {
+		t.Errorf("values[%d] is not the same as expected value under empty key: %v", 2, emptyKeyValue)
+	}
+	if values[3] != nil {
+		t.Errorf("Expecting non-existant key to return value of nil")
+	}
+
+	values, err = db.GetMany(ro, nil)
+	if values != nil || err != nil {
+		t.Errorf("GetMany(): on nil slice should return nil, nil")
+	}
+
+	// Calling GetMany on a slice of N nil slices will be interpreted
+	// as N Gets of the same empty key
+	emptyKeys := make([][]byte, 10)
+	values, err = db.GetMany(ro, emptyKeys)
+	if err != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(values) != len(emptyKeys) {
+		t.Errorf("expecting len(values) == len(emptyKeys)")
+	}
+	for i := range values {
+		if bytes.Compare(emptyKeyValue, values[i]) != 0 {
+			t.Errorf("GetMany() for an empty key should return the value under that key")
+		}
+	}
+
+	// Also verify GetMany with keys all of whose values are the empty value
+	keysWithEmptyValues := [][]byte{keyWithEmptyValue, keyWithEmptyValue, keyWithEmptyValue}
+	emptyValues, err := db.GetMany(ro, keysWithEmptyValues)
+	if err != nil {
+		t.Errorf("expecting all gets succeeded")
+	}
+	if len(emptyValues) != len(keysWithEmptyValues) {
+		t.Errorf("expecting len(emptyValues) == len(keysWithEmptyValues)")
+	}
+	for i := range emptyValues {
+		if emptyValues[i] == nil || len(emptyValues[i]) != 0 {
+			t.Errorf("expecting a zero-length, non-nil, empty-value for key %d", i)
+		}
+	}
+}
+
+func TestMultiKeyErrors(t *testing.T) {
+	expectedKeyIdxToErr := map[int]error{
+		11: errors.New("Error bar for key-11"),
+		2:  errors.New("Error foo for key-2"),
+		5:  errors.New("Error foo for key-5"),
+		7:  errors.New("Error foo for key-7"),
+	}
+
+	mke := &MultiKeyError{}
+	for keyIdx, err := range expectedKeyIdxToErr {
+		mke.addKeyErr(keyIdx, err)
+	}
+	var err error = mke
+	_, ok := err.(*MultiKeyError)
+	if !ok {
+		t.Errorf("type assertion failed")
+	}
+
+	errByKeyIdx := mke.ErrorsByKeyIdx()
+	if len(errByKeyIdx) != len(expectedKeyIdxToErr) {
+		t.Errorf("expecting %d errors", len(expectedKeyIdxToErr))
+	}
+
+	t.Logf("multikey-error str: %s", mke.Error())
+	for keyIdx, err := range errByKeyIdx {
+		t.Logf("For key index %d, error: %s", keyIdx, err)
+		if err != expectedKeyIdxToErr[keyIdx] {
+			t.Errorf("Expecting key index %d holding error %s, got %s instead", keyIdx, expectedKeyIdxToErr[keyIdx], err)
+		}
+	}
+}
+func BenchmarkDBGets(b *testing.B) {
+	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
+	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
+}
+
+func benchmarkDBGets(b *testing.B, useGetMany bool) {
+	dbname, err := ioutil.TempDir("", "levigo-benchmark-")
+	if err != nil {
+		b.Fatalf("Failed to create db for benchmark")
+	}
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	ro := NewReadOptions()
+	wo := NewWriteOptions()
+	db, err := Open(dbname, options)
+	if err != nil {
+		b.Fatalf("Database could not be opened: %v", err)
+	}
+	defer os.RemoveAll(dbname)
+	defer db.Close()
+
+	// Populate the db with some test key-value pairs
+	const fixedKeyLen = 20
+	const fixedValueLen = 128
+	keys := make([][]byte, 10000)
+	expectedValues := make([][]byte, len(keys))
+	nb := 0
+	for i := range keys {
+		keys[i] = make([]byte, fixedKeyLen)
+		n, err := rand.Read(keys[i])
+		if n != len(keys[i]) || err != nil {
+			b.Fatalf("could not generate random keys")
+		}
+		expectedValues[i] = make([]byte, fixedValueLen)
+		n, err = rand.Read(expectedValues[i])
+		if n != len(expectedValues[i]) || err != nil {
+			b.Fatalf("could not generate random values")
+		}
+		err = db.Put(wo, keys[i], expectedValues[i])
+		nb += len(keys[i])
+		if err != nil {
+			b.Errorf("Put failed: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	b.SetBytes(int64(nb))
+
+	for i := 0; i < b.N; i++ {
+		if useGetMany {
+			values, _ := db.GetMany(ro, keys)
+			runtime.KeepAlive(values)
+		} else {
+			for j := range keys {
+				v, _ := db.Get(ro, keys[j])
+				runtime.KeepAlive(v)
+			}
+		}
 	}
 }
 
