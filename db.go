@@ -229,9 +229,9 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 // values, err := GetMany(ro, keys)
 // if err != nil {
 //      if mke, ok := err.(*levigo.MultiKeyError); ok {
-//          failedIndexes, errs := mke.FailedKeyIndexes(), mke.Errors()
-//          for i := range errs {
-//              fmt.Printf("Failed for key %d, error: %s", failedIndexes[i], errs[i])
+//          errsByKeyIdx := mke.ErrorsByKeyIdx()
+//          for idx := range errsByKeyIdx {
+//              fmt.Printf("Failed for key %s, error: %s", keys[idx], errs[i])
 //          }
 //      }
 // }

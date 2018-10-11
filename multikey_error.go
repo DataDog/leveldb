@@ -28,46 +28,36 @@ func (mke *MultiKeyError) Error() string {
 			break
 		}
 	}
-	return fmt.Sprintf("%d keys encountered error (here's a few:%s), cast via err.(*levigo.MultiKeyErrors).Errors() to get all the errors", len(mke.errsByIdx), topErrsMsg)
+	return fmt.Sprintf("%d keys encountered error (here's a few:%s), cast via err.(*levigo.MultiKeyErrors).ErrorsByKeyIdx() to get all the errors", len(mke.errsByIdx), topErrsMsg)
 }
 
 func (mke *MultiKeyError) GoString() string {
 	return fmt.Sprintf("*%#v", *mke)
 }
 
-// FailedKeyIndexes() gives a list of indexes for which Get/PutMany() failed
-// for key at keys[indexes[i]]; e.g. if this returns[2, 3, 7], it means
-// Get/PutMany({keys[2], keys[3], keys[7]}) failed.
-func (mke *MultiKeyError) FailedKeyIndexes() []int {
+// ErrorsByKeyIdx() returns a result map of keyIdx => error. e.g.
+// If one calls GetMany(keys) and keys[2], keys[3], keys[7]
+// failed, then result[2] will hold the error for keys[2],
+// result[3] for keys[3] and result[7] the error for keys[7]
+func (mke *MultiKeyError) ErrorsByKeyIdx() map[int]error {
 	if mke.errsByIdx == nil {
 		return nil
 	}
 
-	indexes := make([]int, 0, len(mke.errsByIdx))
-	for i := range mke.errsByIdx {
-		indexes = append(indexes, i)
+	result := make(map[int]error, len(mke.errsByIdx))
+	for keyIdx, err := range mke.errsByIdx {
+		result[keyIdx] = err
 	}
-	return indexes
+
+	return result
 }
 
-// Errors() gives specific errors failed for each key from FailedKeyIndexes()
-func (mke *MultiKeyError) Errors() []error {
-	if mke.errsByIdx == nil {
-		return nil
-	}
-
-	errs := make([]error, 0, len(mke.errsByIdx))
-	for i := range mke.errsByIdx {
-		errs = append(errs, mke.errsByIdx[i])
-	}
-	return errs
-}
-
-func (mke *MultiKeyError) addKeyErr(i int, err error) {
+func (mke *MultiKeyError) addKeyErr(keyIdx int, err error) {
 	if mke.errsByIdx == nil {
 		mke.errsByIdx = make(map[int]error)
 	}
-	mke.errsByIdx[i] = err
+	// This means operation on keys[keyIdx] failed with err
+	mke.errsByIdx[keyIdx] = err
 }
 
 func (mke *MultiKeyError) errAt(i int) error {

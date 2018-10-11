@@ -451,32 +451,34 @@ func TestDBGetMany(t *testing.T) {
 }
 
 func TestMultiKeyErrors(t *testing.T) {
+	expectedKeyIdxToErr := map[int]error{
+		11: errors.New("Error bar for key-11"),
+		2:  errors.New("Error foo for key-2"),
+		5:  errors.New("Error foo for key-5"),
+		7:  errors.New("Error foo for key-7"),
+	}
+
 	mke := &MultiKeyError{}
-	mke.addKeyErr(2, errors.New("Error foo"))
-	mke.addKeyErr(5, errors.New("Error bar"))
-	mke.addKeyErr(7, errors.New("Error fooz"))
+	for keyIdx, err := range expectedKeyIdxToErr {
+		mke.addKeyErr(keyIdx, err)
+	}
 	var err error = mke
 	_, ok := err.(*MultiKeyError)
 	if !ok {
 		t.Errorf("type assertion failed")
 	}
 
-	errs, indexes := mke.Errors(), mke.FailedKeyIndexes()
-	if errs == nil || len(errs) == 0 {
-		t.Errorf("expecting errors")
+	errByKeyIdx := mke.ErrorsByKeyIdx()
+	if len(errByKeyIdx) != len(expectedKeyIdxToErr) {
+		t.Errorf("expecting %d errors", len(expectedKeyIdxToErr))
 	}
-	if indexes == nil || len(indexes) == 0 {
-		t.Errorf("expecting failed indexes")
-	}
-	if len(errs) != len(indexes) {
-		t.Errorf("expecting len(errs) == len(indexes)")
-	}
-	t.Logf("multikey-error content: %s", mke.Error())
-	for i := range errs {
-		if errs[i] == nil {
-			t.Errorf("Expecting error at %d", i)
+
+	t.Logf("multikey-error str: %s", mke.Error())
+	for keyIdx, err := range errByKeyIdx {
+		t.Logf("For key index %d, error: %s", keyIdx, err)
+		if err != expectedKeyIdxToErr[keyIdx] {
+			t.Errorf("Expecting key index %d holding error %s, got %s instead", keyIdx, expectedKeyIdxToErr[keyIdx], err)
 		}
-		t.Logf("For key %d, packed error: %s", indexes[i], errs[i])
 	}
 }
 func BenchmarkDBGets(b *testing.B) {
