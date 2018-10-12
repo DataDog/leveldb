@@ -181,6 +181,10 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 // PutMany writes all of the keys[i] => values[i] to the database. It has
 // the same semantics as Put(). In particular, if all of values[i] is nil or []byte{},
 // All values of keys will be set to the same zero-length slice value.
+// NOTE: Since PutMany() like GetMany() will allow partial successes while returning
+// the errors for the keys that have failed, an error returned by PutMany() does NOT
+// always mean the put operation failed for ALL key-value pairs. Caller must cast error
+// into *levigo.MultiKeyError to get at the errors specific for the failed keys.
 //
 // The keys and values byte slices may be reused safely. PutMany takes a copy of
 // them before returning.
@@ -189,10 +193,11 @@ func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) error {
 		panic(ErrDBClosed)
 	}
 
-	if len(keys) == 0 {
-		return errors.New("cannot call PutMany() with len(keys) == 0")
+	if len(keys) == 0 && len(values) == 0 {
+		return nil
 	}
-	if len(values) == 0 {
+	if len(keys) == 0 {
+		return errors.New("cannot call PutMany() with len(keys) == 0 && len(values) > 0")
 	}
 	if len(keys) != len(values) {
 		return errors.New("cannot call PutMany() with len(keys) != len(values)")
@@ -201,7 +206,7 @@ func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) error {
 	packedKeys, keyLens := toPackedBytes(keys)
 	packedVals, valLens := toPackedBytes(values)
 	if len(packedKeys) == 0 {
-		// Unlike GetMany(), calling PutMany() with say 2 empty key slices is likely
+		// Unlike GetMany(), calling PutMany() with a slice with say 3 empty keys is likely
 		// an error as it's not clear which value should be assigned to the empty key
 		return errors.New("cannot call PutMany() with all empty key slices")
 	}

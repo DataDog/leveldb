@@ -380,7 +380,7 @@ func TestDBPutManyGetMany(t *testing.T) {
 	// Populate the db with some test key-value pairs
 	err = db.PutMany(wo, keys, expectedValues)
 	if err != nil {
-		t.Errorf("PutMany() should not fail for any keys")
+		t.Errorf("PutMany() should not fail for any key, error: %s", err)
 	}
 
 	var values [][]byte
@@ -508,10 +508,10 @@ func benchmarkDBGets(b *testing.B, useGetMany bool) {
 	ro := NewReadOptions()
 	wo := NewWriteOptions()
 	db, err := Open(dbname, options)
+	defer os.RemoveAll(dbname)
 	if err != nil {
 		b.Fatalf("Database could not be opened: %v", err)
 	}
-	defer os.RemoveAll(dbname)
 	defer db.Close()
 
 	// Populate the db with some test key-value pairs
@@ -569,10 +569,10 @@ func benchmarkDBPuts(b *testing.B, usePutMany bool) {
 	options.SetCreateIfMissing(true)
 	wo := NewWriteOptions()
 	db, err := Open(dbname, options)
+	defer os.RemoveAll(dbname)
 	if err != nil {
 		b.Fatalf("Database could not be opened: %v", err)
 	}
-	defer os.RemoveAll(dbname)
 	defer db.Close()
 
 	const fixedKeyLen = 20
