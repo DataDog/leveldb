@@ -229,13 +229,13 @@ void leveldb_getmany(
   // the heap which the caller in go-land should free via C.leveldb_free()
   *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
 
-  int key_offset = 0;
+  size_t key_offset = 0;
   std::vector<std::string> values(num_keys);
-  int packed_vals_len = 0;
+  size_t packed_vals_len = 0;
   std::vector<std::string> errs;
-  int packed_errs_len = 0;
+  size_t packed_errs_len = 0;
 
-  for (int i = 0; i < num_keys; i++) {
+  for (size_t i = 0; i < num_keys; i++) {
     Slice key(&(packed_keys[key_offset]), keylens[i]);
     key_offset += keylens[i];
 
@@ -272,13 +272,13 @@ void leveldb_getmany(
   // (arrays of char arrays), we pack all of them into one malloc()-ed char
   // array, `packed_vals`, with an array of offsets, `vallens`. Caller can then
   // use them together to unpack the values
-  int offset = 0;
   if (packed_vals_len > 0) {
     *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
-    for (int i = 0; i < values.size(); i++) {
-      if (values[i].length() > 0) {
-        memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
-        offset += values[i].length();
+    size_t offset = 0;
+    for (const auto& value : values) {
+      if (value.length() > 0) {
+        memcpy(&((*packed_vals)[offset]), value.data(), value.length());
+        offset += value.length();
       }
     }
   } else {
@@ -287,13 +287,13 @@ void leveldb_getmany(
   }
 
   // Do the same for errors
-  offset = 0;
   if (packed_errs_len > 0) {
     *packed_errs = reinterpret_cast<char*>(malloc(packed_errs_len));
-    for (int i = 0; i < errs.size(); i++) {
-      if (errs[i].length() > 0) {
-        memcpy(&((*packed_errs)[offset]), errs[i].data(), errs[i].length());
-        offset += errs[i].length();
+    size_t offset = 0;
+    for (const auto& err : errs) {
+      if (err.length() > 0) {
+        memcpy(&((*packed_errs)[offset]), err.data(), err.length());
+        offset += err.length();
       }
     }
   } else {
