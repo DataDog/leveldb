@@ -225,7 +225,7 @@ void leveldb_getmany(
     int** vallens, // must be signed int as (*vallens)[i] could be set to -1 to distinguish not-found from an empty value
     char** packed_errs,
     size_t** errlens) {
-  // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
+  // These, along with packed_vals and packed_errs are out-params malloc()-ed from
   // the heap which the caller in go-land should free via C.leveldb_free()
   *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
 
@@ -236,7 +236,7 @@ void leveldb_getmany(
   int packed_errs_len = 0;
 
   for (int i = 0; i < num_keys; i++) {
-    Slice key(const_cast<char*>(&(packed_keys[key_offset])), keylens[i]);
+    Slice key(&(packed_keys[key_offset]), keylens[i]);
     key_offset += keylens[i];
 
     Status s = db->rep->Get(options->rep, key, &(values[i]));
