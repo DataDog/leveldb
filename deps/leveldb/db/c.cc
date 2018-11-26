@@ -259,9 +259,10 @@ void leveldb_getmany(
           memset(*errlens, 0, sizeof(size_t) * num_keys);
           errs = std::vector<std::string>(num_keys);
         }
-        errs[i] = errStr;
-        (*errlens)[i] = errStr.length();
-        packed_errs_len += errStr.length();
+        size_t len = errStr.length();
+        errs[i] = std::move(errStr);
+        (*errlens)[i] = len;
+        packed_errs_len += len;
       }
     }
   }
