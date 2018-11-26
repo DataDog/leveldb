@@ -8,7 +8,7 @@
 SeekResult leveldb_iter_seek_to(leveldb_iterator_t* iter, const char* k, size_t klen) {
     leveldb_iter_seek(iter, k, klen);
 
-    SeekResult sr;
+    SeekResult sr = {};
     sr.valid = leveldb_iter_valid(iter);
 
     if (sr.valid != 0) {
