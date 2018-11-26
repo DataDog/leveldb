@@ -96,6 +96,17 @@ LEVELDB_EXPORT char* leveldb_get(leveldb_t* db,
                                  const char* key, size_t keylen, size_t* vallen,
                                  char** errptr);
 
+LEVELDB_EXPORT void leveldb_getmany(
+    leveldb_t* db,
+    const leveldb_readoptions_t* options,
+    const char* packed_keys,
+    size_t num_keys,
+    const size_t* keylens,
+    char** packed_vals,
+    int** vallens,
+    char** packed_errs,
+    size_t** errlens);
+
 LEVELDB_EXPORT leveldb_iterator_t* leveldb_create_iterator(
     leveldb_t* db, const leveldb_readoptions_t* options);
 
