@@ -9,7 +9,6 @@
 #include "table/block.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "lz4.h"
 
 namespace leveldb {
 
@@ -120,13 +119,13 @@ Status ReadBlock(RandomAccessFile* file,
       size_t ulength = 0;
       if (!port::Snappy_GetUncompressedLength(data, n, &ulength)) {
         delete[] buf;
-        return Status::Corruption("corrupted block contents");
+        return Status::Corruption("corrupted compressed block contents");
       }
       char* ubuf = new char[ulength];
       if (!port::Snappy_Uncompress(data, n, ubuf)) {
         delete[] buf;
         delete[] ubuf;
-        return Status::Corruption("corrupted snappy block contents");
+        return Status::Corruption("corrupted compressed block contents");
       }
       delete[] buf;
       result->data = Slice(ubuf, ulength);
@@ -134,25 +133,6 @@ Status ReadBlock(RandomAccessFile* file,
       result->cachable = true;
       break;
     }
-
-    case kLZ4Compression: {
-      size_t ulength = DecodeFixed32(data);
-      size_t ret;
-      char* ubuf = new char[ulength];
-
-      ret = level_LZ4_decompress_safe(data+4, ubuf, n-4, ulength);
-      if (ret != ulength) {
-        delete[] buf;
-        delete[] ubuf;
-        return Status::Corruption("corrupted lz4 block contents");
-      }
-      delete[] buf;
-      result->data = Slice(ubuf, ulength);
-      result->heap_allocated = true;
-      result->cachable = true;
-      break;
-    }
-
     default:
       delete[] buf;
       return Status::Corruption("bad block type");

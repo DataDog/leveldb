@@ -1,3 +1,5 @@
+This is a fork of https://github.com/google/leveldb at commit 1cb384088184be9840bd59b4040503a9fa9aee66
+
 **LevelDB is a fast key-value storage library written at Google that provides an ordered mapping from string keys to string values.**
 
 [![Build Status](https://travis-ci.org/google/leveldb.svg?branch=master)](https://travis-ci.org/google/leveldb)
@@ -5,6 +7,7 @@
 Authors: Sanjay Ghemawat (sanjay@google.com) and Jeff Dean (jeff@google.com)
 
 # Features
+
   * Keys and values are arbitrary byte arrays.
   * Data is stored sorted by key.
   * Callers can provide a custom comparison function to override the sort order.
@@ -16,15 +19,30 @@ Authors: Sanjay Ghemawat (sanjay@google.com) and Jeff Dean (jeff@google.com)
   * External activity (file system operations etc.) is relayed through a virtual interface so users can customize the operating system interactions.
 
 # Documentation
-  [LevelDB library documentation](https://rawgit.com/google/leveldb/master/doc/index.html) is online and bundled with the source code.
 
+  [LevelDB library documentation](https://github.com/google/leveldb/blob/master/doc/index.md) is online and bundled with the source code.
 
 # Limitations
+
   * This is not a SQL database.  It does not have a relational data model, it does not support SQL queries, and it has no support for indexes.
   * Only a single process (possibly multi-threaded) can access a particular database at a time.
   * There is no client-server support builtin to the library.  An application that needs such support will have to wrap their own server around the library.
 
+# Building
+
+This project supports [CMake](https://cmake.org/) out of the box.
+
+Quick start:
+
+```bash
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build .
+```
+
+Please see the CMake documentation and `CMakeLists.txt` for more advanced usage.
+
 # Contributing to the leveldb Project
+
 The leveldb project welcomes contributions. leveldb's primary goal is to be
 a reliable and fast key/value store. Changes that are in line with the
 features/limitations outlined above, and meet the requirements below,
@@ -45,6 +63,7 @@ Contribution requirements:
    a sufficient explanation as to why a new (or changed) test is not required.
 
 ## Submitting a Pull Request
+
 Before any pull request will be accepted the author must first sign a
 Contributor License Agreement (CLA) at https://cla.developers.google.com/.
 
@@ -113,29 +132,30 @@ by the one or two disk seeks needed to fetch the data from disk.
 Write performance will be mostly unaffected by whether or not the
 working set fits in memory.
 
-    readrandom   :      16.677 micros/op;  (approximately 60,000 reads per second)
-    readseq      :       0.476 micros/op;  232.3 MB/s
-    readreverse  :       0.724 micros/op;  152.9 MB/s
+    readrandom  : 16.677 micros/op;  (approximately 60,000 reads per second)
+    readseq     :  0.476 micros/op;  232.3 MB/s
+    readreverse :  0.724 micros/op;  152.9 MB/s
 
 LevelDB compacts its underlying storage data in the background to
 improve read performance.  The results listed above were done
 immediately after a lot of random writes.  The results after
 compactions (which are usually triggered automatically) are better.
 
-    readrandom   :      11.602 micros/op;  (approximately 85,000 reads per second)
-    readseq      :       0.423 micros/op;  261.8 MB/s
-    readreverse  :       0.663 micros/op;  166.9 MB/s
+    readrandom  : 11.602 micros/op;  (approximately 85,000 reads per second)
+    readseq     :  0.423 micros/op;  261.8 MB/s
+    readreverse :  0.663 micros/op;  166.9 MB/s
 
 Some of the high cost of reads comes from repeated decompression of blocks
 read from disk.  If we supply enough cache to the leveldb so it can hold the
 uncompressed blocks in memory, the read performance improves again:
 
-    readrandom   :       9.775 micros/op;  (approximately 100,000 reads per second before compaction)
-    readrandom   :       5.215 micros/op;  (approximately 190,000 reads per second after compaction)
+    readrandom  : 9.775 micros/op;  (approximately 100,000 reads per second before compaction)
+    readrandom  : 5.215 micros/op;  (approximately 190,000 reads per second after compaction)
 
 ## Repository contents
 
-See doc/index.html for more explanation. See doc/impl.html for a brief overview of the implementation.
+See [doc/index.md](doc/index.md) for more explanation. See
+[doc/impl.md](doc/impl.md) for a brief overview of the implementation.
 
 The public interface is in include/*.h.  Callers should not include or
 rely on the details of any other header files in this package.  Those
@@ -148,7 +168,7 @@ Guide to header files:
 * **include/options.h**: Control over the behavior of an entire database,
 and also control over the behavior of individual reads and writes.
 
-* **include/comparator.h**: Abstraction for user-specified comparison function. 
+* **include/comparator.h**: Abstraction for user-specified comparison function.
 If you want just bytewise comparison of keys, you can use the default
 comparator, but clients can write their own comparator implementations if they
 want custom ordering (e.g. to handle different character encodings, etc.)
@@ -165,7 +185,7 @@ length into some other byte array.
 * **include/status.h**: Status is returned from many of the public interfaces
 and is used to report success and various kinds of errors.
 
-* **include/env.h**: 
+* **include/env.h**:
 Abstraction of the OS environment.  A posix implementation of this interface is
 in util/env_posix.cc
 

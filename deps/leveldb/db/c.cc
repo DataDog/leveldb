@@ -5,7 +5,6 @@
 #include "leveldb/c.h"
 
 #include <stdlib.h>
-#include <unistd.h>
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
@@ -130,10 +129,10 @@ struct leveldb_env_t {
 };
 
 static bool SaveError(char** errptr, const Status& s) {
-  assert(errptr != NULL);
+  assert(errptr != nullptr);
   if (s.ok()) {
     return false;
-  } else if (*errptr == NULL) {
+  } else if (*errptr == nullptr) {
     *errptr = strdup(s.ToString().c_str());
   } else {
     // TODO(sanjay): Merge with existing error?
@@ -155,7 +154,7 @@ leveldb_t* leveldb_open(
     char** errptr) {
   DB* db;
   if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
-    return NULL;
+    return nullptr;
   }
   leveldb_t* result = new leveldb_t;
   result->rep = db;
@@ -200,7 +199,7 @@ char* leveldb_get(
     const char* key, size_t keylen,
     size_t* vallen,
     char** errptr) {
-  char* result = NULL;
+  char* result = nullptr;
   std::string tmp;
   Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp);
   if (s.ok()) {
@@ -213,92 +212,6 @@ char* leveldb_get(
     }
   }
   return result;
-}
-
-void leveldb_getmany(
-    leveldb_t* db,
-    const leveldb_readoptions_t* options,
-    const char* packed_keys,
-    size_t num_keys,
-    const size_t* keylens,
-    char** packed_vals,
-    int** vallens, // must be signed int as (*vallens)[i] could be set to -1 to distinguish not-found from an empty value
-    char** packed_errs,
-    size_t** errlens) {
-  // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
-  // the heap which the caller in go-land should free via C.leveldb_free()
-  *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
-
-  int key_offset = 0;
-  std::vector<std::string> values(num_keys);
-  int packed_vals_len = 0;
-  std::vector<std::string> errs;
-  int packed_errs_len = 0;
-
-  for (int i = 0; i < num_keys; i++) {
-    Slice key(const_cast<char*>(&(packed_keys[key_offset])), keylens[i]);
-    key_offset += keylens[i];
-
-    Status s = db->rep->Get(options->rep, key, &(values[i]));
-    (*vallens)[i] = 0;
-    if (s.ok()) {
-      (*vallens)[i] = values[i].size();
-      packed_vals_len += values[i].size();
-    } else {
-      if (s.IsNotFound()) {
-        // Key is not in db, not an error
-        (*vallens)[i] = -1;
-      } else {
-        std::string errStr = s.ToString();
-        // Most of the time getmany won't experience any error for any
-        // of the keys so we can avoid the cost of allocation and only
-        // lazy-initialize if there's at least one error
-        if (errs.empty()) {
-          *errlens = reinterpret_cast<size_t*>(malloc(sizeof(size_t) * num_keys));
-          // All errlens[i] and errs[i] must be properly initialized, to 0 and ""
-          memset(*errlens, 0, sizeof(size_t) * num_keys);
-          errs = std::vector<std::string>(num_keys);
-        }
-        errs[i] = errStr;
-        (*errlens)[i] = errStr.length();
-        packed_errs_len += errStr.length();
-      }
-    }
-  }
-
-  // cgo only supports simple type conversions between c<->go for int/char
-  // and simple linear array of ints/chars. To pass back multiple values
-  // (arrays of char arrays), we pack all of them into one malloc()-ed char
-  // array, `packed_vals`, with an array of offsets, `vallens`. Caller can then
-  // use them together to unpack the values
-  int offset = 0;
-  if (packed_vals_len > 0) {
-    *packed_vals = reinterpret_cast<char*>(malloc(packed_vals_len));
-    for (int i = 0; i < values.size(); i++) {
-      if (values[i].length() > 0) {
-        memcpy(&((*packed_vals)[offset]), values[i].data(), values[i].length());
-        offset += values[i].length();
-      }
-    }
-  } else {
-    // Either all gets failed or the values of all keys is the empty byte array
-     *packed_vals = NULL;
-  }
-
-  // Do the same for errors
-  offset = 0;
-  if (packed_errs_len > 0) {
-    *packed_errs = reinterpret_cast<char*>(malloc(packed_errs_len));
-    for (int i = 0; i < errs.size(); i++) {
-      if (errs[i].length() > 0) {
-        memcpy(&((*packed_errs)[offset]), errs[i].data(), errs[i].length());
-        offset += errs[i].length();
-      }
-    }
-  } else {
-    // Caller can use (*packed_errs == NULL) as a sign that there were no errors
-    *packed_errs = NULL;
-  }
 }
 
 leveldb_iterator_t* leveldb_create_iterator(
@@ -331,7 +244,7 @@ char* leveldb_property_value(
     // We use strdup() since we expect human readable output.
     return strdup(tmp.c_str());
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -356,9 +269,9 @@ void leveldb_compact_range(
     const char* limit_key, size_t limit_key_len) {
   Slice a, b;
   db->rep->CompactRange(
-      // Pass NULL Slice if corresponding "const char*" is NULL
-      (start_key ? (a = Slice(start_key, start_key_len), &a) : NULL),
-      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : NULL));
+      // Pass null Slice if corresponding "const char*" is null
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
 }
 
 void leveldb_destroy_db(
@@ -446,7 +359,7 @@ void leveldb_writebatch_delete(
 }
 
 void leveldb_writebatch_iterate(
-    leveldb_writebatch_t* b,
+    const leveldb_writebatch_t* b,
     void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen)) {
@@ -467,6 +380,11 @@ void leveldb_writebatch_iterate(
   handler.put_ = put;
   handler.deleted_ = deleted;
   b->rep.Iterate(&handler);
+}
+
+void leveldb_writebatch_append(leveldb_writebatch_t *destination,
+                               const leveldb_writebatch_t *source) {
+  destination->rep.Append(source->rep);
 }
 
 leveldb_options_t* leveldb_options_create() {
@@ -505,11 +423,11 @@ void leveldb_options_set_paranoid_checks(
 }
 
 void leveldb_options_set_env(leveldb_options_t* opt, leveldb_env_t* env) {
-  opt->rep.env = (env ? env->rep : NULL);
+  opt->rep.env = (env ? env->rep : nullptr);
 }
 
 void leveldb_options_set_info_log(leveldb_options_t* opt, leveldb_logger_t* l) {
-  opt->rep.info_log = (l ? l->rep : NULL);
+  opt->rep.info_log = (l ? l->rep : nullptr);
 }
 
 void leveldb_options_set_write_buffer_size(leveldb_options_t* opt, size_t s) {
@@ -530,6 +448,10 @@ void leveldb_options_set_block_size(leveldb_options_t* opt, size_t s) {
 
 void leveldb_options_set_block_restart_interval(leveldb_options_t* opt, int n) {
   opt->rep.block_restart_interval = n;
+}
+
+void leveldb_options_set_max_file_size(leveldb_options_t* opt, size_t s) {
+  opt->rep.max_file_size = s;
 }
 
 void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
@@ -600,7 +522,7 @@ leveldb_filterpolicy_t* leveldb_filterpolicy_create_bloom(int bits_per_key) {
   };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key);
-  wrapper->state_ = NULL;
+  wrapper->state_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }
@@ -627,7 +549,7 @@ void leveldb_readoptions_set_fill_cache(
 void leveldb_readoptions_set_snapshot(
     leveldb_readoptions_t* opt,
     const leveldb_snapshot_t* snap) {
-  opt->rep.snapshot = (snap ? snap->rep : NULL);
+  opt->rep.snapshot = (snap ? snap->rep : nullptr);
 }
 
 leveldb_writeoptions_t* leveldb_writeoptions_create() {
@@ -664,6 +586,18 @@ leveldb_env_t* leveldb_create_default_env() {
 void leveldb_env_destroy(leveldb_env_t* env) {
   if (!env->is_default) delete env->rep;
   delete env;
+}
+
+char* leveldb_env_get_test_directory(leveldb_env_t* env) {
+  std::string result;
+  if (!env->rep->GetTestDirectory(&result).ok()) {
+    return nullptr;
+  }
+
+  char* buffer = static_cast<char*>(malloc(result.size() + 1));
+  memcpy(buffer, result.data(), result.size());
+  buffer[result.size()] = '\0';
+  return buffer;
 }
 
 void leveldb_free(void* ptr) {
