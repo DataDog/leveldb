@@ -94,27 +94,25 @@ type Snapshot struct {
 // It is usually wise to set a Cache object on the Options with SetCache to
 // keep recently used data from that database in memory.
 func Open(dbname string, o *Options) (*DB, error) {
-	var errStr *C.char
 	ldbname := C.CString(dbname)
 	defer C.free(unsafe.Pointer(ldbname))
 
-	leveldb := C.leveldb_open(o.Opt, ldbname, &errStr)
-	if errStr != nil {
-		gs := C.GoString(errStr)
-		C.leveldb_free(unsafe.Pointer(errStr))
+	result := C.leveldb_open(o.Opt, ldbname)
+	if result.err != nil {
+		gs := C.GoString(result.err)
+		C.leveldb_free(unsafe.Pointer(result.err))
 		return nil, DatabaseError(gs)
 	}
-	return &DB{leveldb, false}, nil
+	return &DB{result.db, false}, nil
 }
 
 // DestroyDatabase removes a database entirely, removing everything from the
 // filesystem.
 func DestroyDatabase(dbname string, o *Options) error {
-	var errStr *C.char
 	ldbname := C.CString(dbname)
 	defer C.free(unsafe.Pointer(ldbname))
 
-	C.leveldb_destroy_db(o.Opt, ldbname, &errStr)
+	errStr := C.leveldb_destroy_db(o.Opt, ldbname)
 	if errStr != nil {
 		gs := C.GoString(errStr)
 		C.leveldb_free(unsafe.Pointer(errStr))
@@ -127,11 +125,10 @@ func DestroyDatabase(dbname string, o *Options) error {
 //
 // If the database is unrepairable, an error is returned.
 func RepairDatabase(dbname string, o *Options) error {
-	var errStr *C.char
 	ldbname := C.CString(dbname)
 	defer C.free(unsafe.Pointer(ldbname))
 
-	C.leveldb_repair_db(o.Opt, ldbname, &errStr)
+	errStr := C.leveldb_repair_db(o.Opt, ldbname)
 	if errStr != nil {
 		gs := C.GoString(errStr)
 		C.leveldb_free(unsafe.Pointer(errStr))
@@ -153,7 +150,6 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 		panic(ErrDBClosed)
 	}
 
-	var errStr *C.char
 	// leveldb_put, _get, and _delete call memcpy() (by way of Memtable::Add)
 	// when called, so we do not need to worry about these []byte being
 	// reclaimed by GC.
@@ -167,8 +163,8 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 
 	lenk := len(key)
 	lenv := len(value)
-	C.leveldb_put(
-		db.Ldb, wo.Opt, k, C.size_t(lenk), v, C.size_t(lenv), &errStr)
+	errStr := C.leveldb_put(
+		db.Ldb, wo.Opt, k, C.size_t(lenk), v, C.size_t(lenv))
 
 	if errStr != nil {
 		gs := C.GoString(errStr)
@@ -191,28 +187,26 @@ func (db *DB) Get(ro *ReadOptions, key []byte) ([]byte, error) {
 		panic(ErrDBClosed)
 	}
 
-	var errStr *C.char
-	var vallen C.size_t
 	var k *C.char
 	if len(key) != 0 {
 		k = (*C.char)(unsafe.Pointer(&key[0]))
 	}
 
-	value := C.leveldb_get(
-		db.Ldb, ro.Opt, k, C.size_t(len(key)), &vallen, &errStr)
+	result := C.leveldb_get(
+		db.Ldb, ro.Opt, k, C.size_t(len(key)))
 
-	if errStr != nil {
-		gs := C.GoString(errStr)
-		C.leveldb_free(unsafe.Pointer(errStr))
+	if result.err != nil {
+		gs := C.GoString(result.err)
+		C.leveldb_free(unsafe.Pointer(result.err))
 		return nil, DatabaseError(gs)
 	}
 
-	if value == nil {
+	if result.val_data == nil {
 		return nil, nil
 	}
 
-	defer C.leveldb_free(unsafe.Pointer(value))
-	return C.GoBytes(unsafe.Pointer(value), C.int(vallen)), nil
+	defer C.leveldb_free(unsafe.Pointer(result.val_data))
+	return C.GoBytes(unsafe.Pointer(result.val_data), C.int(result.val_len)), nil
 }
 
 // GetMany returns the values associated with keys from the database.
@@ -337,14 +331,13 @@ func (db *DB) Delete(wo *WriteOptions, key []byte) error {
 		panic(ErrDBClosed)
 	}
 
-	var errStr *C.char
 	var k *C.char
 	if len(key) != 0 {
 		k = (*C.char)(unsafe.Pointer(&key[0]))
 	}
 
-	C.leveldb_delete(
-		db.Ldb, wo.Opt, k, C.size_t(len(key)), &errStr)
+	errStr := C.leveldb_delete(
+		db.Ldb, wo.Opt, k, C.size_t(len(key)))
 
 	if errStr != nil {
 		gs := C.GoString(errStr)
@@ -361,8 +354,7 @@ func (db *DB) Write(wo *WriteOptions, w *WriteBatch) error {
 		panic(ErrDBClosed)
 	}
 
-	var errStr *C.char
-	C.leveldb_write(db.Ldb, wo.Opt, w.wbatch, &errStr)
+	errStr := C.leveldb_write(db.Ldb, wo.Opt, w.wbatch)
 	if errStr != nil {
 		gs := C.GoString(errStr)
 		C.leveldb_free(unsafe.Pointer(errStr))

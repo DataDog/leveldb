@@ -55,16 +55,15 @@ func (it *Iterator) Valid() bool {
 //
 // If Valid returns false, this method will panic.
 func (it *Iterator) Key() []byte {
-	var klen C.size_t
-	kdata := C.leveldb_iter_key(it.Iter, &klen)
-	if kdata == nil {
+	result := C.leveldb_iter_key(it.Iter)
+	if result.data == nil {
 		return nil
 	}
-	// Unlike DB.Get, the key, kdata, returned is not meant to be freed by the
+	// Unlike DB.Get, the key, result.data, returned is not meant to be freed by the
 	// client. It's a direct reference to data managed by the iterator_t
 	// instead of a copy.  So, we must not free it here but simply copy it
 	// with GoBytes.
-	return C.GoBytes(unsafe.Pointer(kdata), C.int(klen))
+	return C.GoBytes(unsafe.Pointer(result.data), C.int(result.len))
 }
 
 // Value returns a copy of the value in the database the iterator currently
@@ -72,16 +71,15 @@ func (it *Iterator) Key() []byte {
 //
 // If Valid returns false, this method will panic.
 func (it *Iterator) Value() []byte {
-	var vlen C.size_t
-	vdata := C.leveldb_iter_value(it.Iter, &vlen)
-	if vdata == nil {
+	result := C.leveldb_iter_value(it.Iter)
+	if result.data == nil {
 		return nil
 	}
-	// Unlike DB.Get, the value, vdata, returned is not meant to be freed by
+	// Unlike DB.Get, the value, result.data, returned is not meant to be freed by
 	// the client. It's a direct reference to data managed by the iterator_t
 	// instead of a copy. So, we must not free it here but simply copy it with
 	// GoBytes.
-	return C.GoBytes(unsafe.Pointer(vdata), C.int(vlen))
+	return C.GoBytes(unsafe.Pointer(result.data), C.int(result.len))
 }
 
 // Next moves the iterator to the next sequential key in the database, as
@@ -130,8 +128,7 @@ func (it *Iterator) Seek(key []byte) {
 //
 // This method is safe to call when Valid returns false.
 func (it *Iterator) GetError() error {
-	var errStr *C.char
-	C.leveldb_iter_get_error(it.Iter, &errStr)
+	errStr := C.leveldb_iter_get_error(it.Iter)
 	if errStr != nil {
 		gs := C.GoString(errStr)
 		C.leveldb_free(unsafe.Pointer(errStr))

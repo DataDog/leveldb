@@ -495,7 +495,9 @@ func benchmarkDBGets(b *testing.B, useGetMany bool) {
 	options.SetErrorIfExists(true)
 	options.SetCreateIfMissing(true)
 	ro := NewReadOptions()
+	defer ro.Close()
 	wo := NewWriteOptions()
+	defer wo.Close()
 	db, err := Open(dbname, options)
 	if err != nil {
 		b.Fatalf("Database could not be opened: %v", err)
