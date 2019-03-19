@@ -21,10 +21,11 @@
   the caller has to pass the pointer and length as separate
   arguments.
 
-  (3) Errors are represented by a null-terminated c string.  NULL
-  means no error.  All operations that can raise an error are passed
-  a "char** errptr" as the last argument.  One of the following must
-  be true on entry:
+  (3) Errors are represented by a null-terminated c string. NULL
+  means no error. All operations that can raise an error return the error
+  string either as a return value or as a part of a return value struct.
+
+  One of the following must be true on entry:
      *errptr == NULL
      *errptr points to a malloc()ed null-terminated error message
        (On Windows, *errptr must have been malloc()-ed by this library.)
@@ -69,40 +70,46 @@ typedef struct leveldb_writeoptions_t  leveldb_writeoptions_t;
 
 /* DB operations */
 
-extern leveldb_t* leveldb_open(
+typedef struct {
+    leveldb_t* db;
+    char* err;
+} leveldb_openresult_t;
+
+extern leveldb_openresult_t leveldb_open(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr);
+    const char* name);
 
 extern void leveldb_close(leveldb_t* db);
 
-extern void leveldb_put(
+extern char* leveldb_put(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
     const char* key, size_t keylen,
-    const char* val, size_t vallen,
-    char** errptr);
+    const char* val, size_t vallen);
 
-extern void leveldb_delete(
+extern char* leveldb_delete(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
-    const char* key, size_t keylen,
-    char** errptr);
+    const char* key, size_t keylen);
 
-extern void leveldb_write(
+extern char* leveldb_write(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
-    leveldb_writebatch_t* batch,
-    char** errptr);
+    leveldb_writebatch_t* batch);
 
-/* Returns NULL if not found.  A malloc()ed array otherwise.
-   Stores the length of the array in *vallen. */
-extern char* leveldb_get(
+typedef struct {
+    const char* val_data;
+    size_t val_len;
+    char* err;
+} leveldb_getresult_t;
+
+/* Returns leveldb_getresult_t structure. The val_data field is NULL if not found.
+   A malloc()ed array otherwise. Stores the length of the array in val_len. */
+extern leveldb_getresult_t leveldb_get(
     leveldb_t* db,
     const leveldb_readoptions_t* options,
-    const char* key, size_t keylen,
-    size_t* vallen,
-    char** errptr);
+    const char* key,
+    size_t keylen);
 
 extern void leveldb_getmany(
     leveldb_t* db,
@@ -146,17 +153,20 @@ extern void leveldb_compact_range(
 
 /* Management operations */
 
-extern void leveldb_destroy_db(
+extern char* leveldb_destroy_db(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr);
+    const char* name);
 
-extern void leveldb_repair_db(
+extern char* leveldb_repair_db(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr);
+    const char* name);
 
 /* Iterator */
+
+typedef struct {
+    const char* data;
+    size_t len;
+} leveldb_slice_t;
 
 extern void leveldb_iter_destroy(leveldb_iterator_t*);
 extern unsigned char leveldb_iter_valid(const leveldb_iterator_t*);
@@ -165,9 +175,9 @@ extern void leveldb_iter_seek_to_last(leveldb_iterator_t*);
 extern void leveldb_iter_seek(leveldb_iterator_t*, const char* k, size_t klen);
 extern void leveldb_iter_next(leveldb_iterator_t*);
 extern void leveldb_iter_prev(leveldb_iterator_t*);
-extern const char* leveldb_iter_key(const leveldb_iterator_t*, size_t* klen);
-extern const char* leveldb_iter_value(const leveldb_iterator_t*, size_t* vlen);
-extern void leveldb_iter_get_error(const leveldb_iterator_t*, char** errptr);
+extern const leveldb_slice_t leveldb_iter_key(const leveldb_iterator_t*);
+extern const leveldb_slice_t leveldb_iter_value(const leveldb_iterator_t*);
+extern char* leveldb_iter_get_error(const leveldb_iterator_t*);
 
 /* Write batch */
 

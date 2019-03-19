@@ -149,16 +149,16 @@ static char* CopyString(const std::string& str) {
   return result;
 }
 
-leveldb_t* leveldb_open(
+leveldb_openresult_t leveldb_open(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr) {
+    const char* name) {
+  leveldb_openresult_t result = {0};
   DB* db;
-  if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
-    return NULL;
+  if (SaveError(&result.err, DB::Open(options->rep, std::string(name), &db))) {
+    return result;
   }
-  leveldb_t* result = new leveldb_t;
-  result->rep = db;
+  result.db = new leveldb_t;
+  result.db->rep = db;
   return result;
 }
 
@@ -167,49 +167,49 @@ void leveldb_close(leveldb_t* db) {
   delete db;
 }
 
-void leveldb_put(
+char* leveldb_put(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
     const char* key, size_t keylen,
-    const char* val, size_t vallen,
-    char** errptr) {
-  SaveError(errptr,
+    const char* val, size_t vallen) {
+  char *err = NULL;
+  SaveError(&err,
             db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
+  return err;
 }
 
-void leveldb_delete(
+char* leveldb_delete(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
-    const char* key, size_t keylen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen)));
+    const char* key, size_t keylen) {
+  char *err = NULL;
+  SaveError(&err, db->rep->Delete(options->rep, Slice(key, keylen)));
+  return err;
 }
 
-
-void leveldb_write(
+char* leveldb_write(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
-    leveldb_writebatch_t* batch,
-    char** errptr) {
-  SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
+    leveldb_writebatch_t* batch) {
+  char *err = NULL;
+  SaveError(&err, db->rep->Write(options->rep, &batch->rep));
+  return err;
 }
 
-char* leveldb_get(
+leveldb_getresult_t leveldb_get(
     leveldb_t* db,
     const leveldb_readoptions_t* options,
-    const char* key, size_t keylen,
-    size_t* vallen,
-    char** errptr) {
-  char* result = NULL;
+    const char* key,
+    size_t keylen) {
+  leveldb_getresult_t result = {0};
   std::string tmp;
   Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp);
   if (s.ok()) {
-    *vallen = tmp.size();
-    result = CopyString(tmp);
+    result.val_len = tmp.size();
+    result.val_data = CopyString(tmp);
   } else {
-    *vallen = 0;
     if (!s.IsNotFound()) {
-      SaveError(errptr, s);
+      SaveError(&result.err, s);
     }
   }
   return result;
@@ -225,7 +225,7 @@ void leveldb_getmany(
     int** vallens, // must be signed int as (*vallens)[i] could be set to -1 to distinguish not-found from an empty value
     char** packed_errs,
     size_t** errlens) {
-  // These, along with packed_vals and packed_errs are out-params malloc()-ed from 
+  // These, along with packed_vals and packed_errs are out-params malloc()-ed from
   // the heap which the caller in go-land should free via C.leveldb_free()
   *vallens = reinterpret_cast<int*>(malloc(sizeof(int) * num_keys));
 
@@ -361,18 +361,20 @@ void leveldb_compact_range(
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : NULL));
 }
 
-void leveldb_destroy_db(
+char* leveldb_destroy_db(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr) {
-  SaveError(errptr, DestroyDB(name, options->rep));
+    const char* name) {
+  char *err = NULL;
+  SaveError(&err, DestroyDB(name, options->rep));
+  return err;
 }
 
-void leveldb_repair_db(
+char* leveldb_repair_db(
     const leveldb_options_t* options,
-    const char* name,
-    char** errptr) {
-  SaveError(errptr, RepairDB(name, options->rep));
+    const char* name) {
+  char *err = NULL;
+  SaveError(&err, RepairDB(name, options->rep));
+  return err;
 }
 
 void leveldb_iter_destroy(leveldb_iterator_t* iter) {
@@ -404,20 +406,26 @@ void leveldb_iter_prev(leveldb_iterator_t* iter) {
   iter->rep->Prev();
 }
 
-const char* leveldb_iter_key(const leveldb_iterator_t* iter, size_t* klen) {
+const leveldb_slice_t leveldb_iter_key(const leveldb_iterator_t* iter) {
   Slice s = iter->rep->key();
-  *klen = s.size();
-  return s.data();
+  leveldb_slice_t result = {0};
+  result.data = s.data();
+  result.len = s.size();
+  return result;
 }
 
-const char* leveldb_iter_value(const leveldb_iterator_t* iter, size_t* vlen) {
+const leveldb_slice_t leveldb_iter_value(const leveldb_iterator_t* iter) {
   Slice s = iter->rep->value();
-  *vlen = s.size();
-  return s.data();
+  leveldb_slice_t result = {0};
+  result.data = s.data();
+  result.len = s.size();
+  return result;
 }
 
-void leveldb_iter_get_error(const leveldb_iterator_t* iter, char** errptr) {
-  SaveError(errptr, iter->rep->status());
+char* leveldb_iter_get_error(const leveldb_iterator_t* iter) {
+  char *err = NULL;
+  SaveError(&err, iter->rep->status());
+  return err;
 }
 
 leveldb_writebatch_t* leveldb_writebatch_create() {
