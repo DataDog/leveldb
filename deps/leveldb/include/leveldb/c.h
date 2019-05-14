@@ -81,6 +81,19 @@ extern leveldb_openresult_t leveldb_open(
 
 extern void leveldb_close(leveldb_t* db);
 
+typedef struct {
+    const char* key;
+    size_t keylen;
+    const char* val;
+    size_t vallen;
+} leveldb_keyvalue_t;
+
+extern char * leveldb_putmany(
+    leveldb_t* db,
+    const leveldb_writeoptions_t* options,
+    leveldb_keyvalue_t* items,
+    size_t len);
+
 extern char* leveldb_put(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,

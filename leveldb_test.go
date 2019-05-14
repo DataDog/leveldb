@@ -2,6 +2,8 @@ package levigo
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -481,6 +483,46 @@ func TestMultiKeyErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestDBPutMany(t *testing.T) {
+	dbname := tempDir(t)
+	defer deleteDBDirectory(t, dbname)
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	if err != nil {
+		t.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	keys := [][]byte{[]byte("key1"), []byte("key2")}
+	values := [][]byte{[]byte("value1"), []byte("value2")}
+
+	wo := NewWriteOptions()
+	defer wo.Close()
+
+	err = db.PutMany(wo, keys, values)
+	if err != nil {
+		t.Fatalf("error running PutMany: %v", err)
+	}
+
+	ro := NewReadOptions()
+	defer ro.Close()
+
+	for i := 0; i < 2; i++ {
+		v, err := db.Get(ro, keys[i])
+		if err != nil {
+			t.Fatalf("error getting key [%s]: %v", keys[i], err)
+		}
+
+		if !bytes.Equal(v, values[i]) {
+			t.Fatalf("value for key [%s] was not [%s].  was: [%s]", keys[i], values[i], v)
+		}
+	}
+}
+
 func BenchmarkDBGets(b *testing.B) {
 	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
 	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
@@ -545,6 +587,117 @@ func benchmarkDBGets(b *testing.B, useGetMany bool) {
 	}
 }
 
+func BenchmarkDB_Put(b *testing.B) {
+	itemCounts := []int{1000, 10000, 10000}
+
+	for _, itemCount := range itemCounts {
+		b.Run(fmt.Sprintf("Put_%d", itemCount), func(b *testing.B) {
+			benchmarkDBPut(b, itemCount, func(db *DB, wo *WriteOptions, keys, values [][]byte) error {
+				var lastError error
+
+				for i := range keys {
+					err := db.Put(wo, keys[i], values[i])
+					if err != nil {
+						lastError = err
+					}
+				}
+
+				return lastError
+			})
+		})
+
+		b.Run(fmt.Sprintf("Batch_%d", itemCount), func(b *testing.B) {
+			benchmarkDBPut(b, itemCount, func(db *DB, wo *WriteOptions, keys, values [][]byte) error {
+				wb := NewWriteBatch()
+
+				for i := range keys {
+					wb.Put(keys[i], values[i])
+				}
+
+				err := db.Write(wo, wb)
+
+				wb.Close()
+				return err
+			})
+		})
+
+		b.Run(fmt.Sprintf("PutMany_%d", itemCount), func(b *testing.B) {
+			benchmarkDBPut(b, itemCount, func(db *DB, wo *WriteOptions, keys, values [][]byte) error {
+				return db.PutMany(wo, keys, values)
+			})
+		})
+	}
+}
+
+func benchmarkDBPut(b *testing.B, itemCount int, putFunc func(db *DB, wo *WriteOptions, keys, values [][]byte) error) {
+	b.ReportAllocs()
+
+	dbname := tempDir(b)
+	defer deleteDBDirectory(b, dbname)
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	if err != nil {
+		b.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	keys := make([][]byte, itemCount)
+	values := make([][]byte, itemCount)
+
+	h := md5.New()
+
+	var byteCount int64
+
+	for i := 0; i < itemCount; i++ {
+		var value [8]byte
+
+		orgID := rand.Int31()
+
+		var ts [8]byte
+		binary.LittleEndian.PutUint64(ts[:], uint64(time.Now().Unix()))
+
+		var b bytes.Buffer
+		b.WriteString("v1|o:")
+		b.WriteRune(orgID)
+		b.WriteString("|p:")
+		b.WriteRune(rand.Int31())
+		b.WriteString("|t:")
+		b.Write(ts[:])
+
+		h.Reset()
+		hash := h.Sum(b.Bytes())
+
+		var key [20]byte
+
+		binary.LittleEndian.PutUint32(key[0:4], uint32(orgID))
+		copy(key[4:], hash)
+
+		binary.LittleEndian.PutUint64(value[:], uint64(time.Now().UnixNano()))
+
+		keys[i] = key[:]
+		values[i] = value[:]
+
+		byteCount += int64(len(key) + len(value))
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		wo := NewWriteOptions()
+		err := putFunc(db, wo, keys, values)
+		wo.Close()
+
+		if err != nil {
+			b.Fatalf("error running benchmark: %v", err)
+		}
+
+		b.SetBytes(byteCount)
+	}
+}
+
 func CheckGet(t *testing.T, where string, db *DB, roptions *ReadOptions, key, expected []byte) {
 	getValue, err := db.Get(roptions, key)
 
@@ -553,12 +706,6 @@ func CheckGet(t *testing.T, where string, db *DB, roptions *ReadOptions, key, ex
 	}
 	if !bytes.Equal(getValue, expected) {
 		t.Errorf("%s, expected Get value %v, got %v", where, expected, getValue)
-	}
-}
-
-func WBIterCheckEqual(t *testing.T, where string, which string, pos int, expected, given []byte) {
-	if !bytes.Equal(expected, given) {
-		t.Errorf("%s at pos %d, %s expected: %v, got: %v", where, pos, which, expected, given)
 	}
 }
 
@@ -571,14 +718,14 @@ func CheckIter(t *testing.T, it *Iterator, key, value []byte) {
 	}
 }
 
-func deleteDBDirectory(t *testing.T, dirPath string) {
+func deleteDBDirectory(t testing.TB, dirPath string) {
 	err := os.RemoveAll(dirPath)
 	if err != nil {
-		t.Errorf("Unable to remove database directory: %s", dirPath)
+		t.Fatalf("Unable to remove database directory: %s", dirPath)
 	}
 }
 
-func tempDir(t *testing.T) string {
+func tempDir(t testing.TB) string {
 	bottom := fmt.Sprintf("levigo-test-%d", rand.Int())
 	path := filepath.Join(os.TempDir(), bottom)
 	deleteDBDirectory(t, path)

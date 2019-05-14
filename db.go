@@ -174,6 +174,50 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 	return nil
 }
 
+// PutMany writes the associated key/values to the database.
+//
+// Under the hood, this creates a write batch, adds the key/values to it and then writes it to the db.  This avoids
+// multiple cgo calls if you want to add a lot of items to a write batch at once.
+//
+// The WriteOptions passed in can be reused by multiple calls to this and if the WriteOptions is left unchanged.
+func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) error {
+	if db.closed {
+		panic(ErrDBClosed)
+	}
+
+	if len(keys) != len(values) {
+		return errors.New("length of keys does not match length of values")
+	}
+
+	size := len(keys)
+
+	// Go doesn't let pass pointers inside pointers to C, we have to allocate memory in C as a workaround.
+	// See https://golang.org/cmd/cgo/#hdr-Passing_pointers
+	arr := (*C.leveldb_keyvalue_t)(C.malloc(C.size_t(size) * C.size_t(unsafe.Sizeof(C.leveldb_keyvalue_t{}))))
+
+	// See https://github.com/golang/go/wiki/cgo#turning-c-arrays-into-go-slices
+	items := (*[1 << 28]C.leveldb_keyvalue_t)(unsafe.Pointer(arr))[:size:size]
+
+	for i := 0; i < size; i++ {
+		items[i].key = (*C.char)(unsafe.Pointer(&keys[i][0]))
+		items[i].keylen = C.size_t(len(keys[i]))
+		items[i].val = (*C.char)(unsafe.Pointer(&values[i][0]))
+		items[i].vallen = C.size_t(len(values[i]))
+	}
+
+	errStr := C.leveldb_putmany(db.Ldb, wo.Opt, arr, C.size_t(size))
+
+	C.free(unsafe.Pointer(arr))
+
+	if errStr != nil {
+		gs := C.GoString(errStr)
+		C.leveldb_free(unsafe.Pointer(errStr))
+		return DatabaseError(gs)
+	}
+
+	return nil
+}
+
 // Get returns the data associated with the key from the database.
 //
 // If the key does not exist in the database, a nil []byte is returned. If the
