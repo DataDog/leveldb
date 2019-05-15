@@ -523,6 +523,45 @@ func TestDBPutMany(t *testing.T) {
 	}
 }
 
+func TestDBPutMany_DifferentKeyValueSizes(t *testing.T) {
+	dbname := tempDir(t)
+	defer deleteDBDirectory(t, dbname)
+	options := NewOptions()
+	options.SetErrorIfExists(true)
+	options.SetCreateIfMissing(true)
+	_ = DestroyDatabase(dbname, options)
+	db, err := Open(dbname, options)
+	if err != nil {
+		t.Fatalf("Database could not be opened: %v", err)
+	}
+	defer db.Close()
+
+	keys := [][]byte{[]byte("key1"), []byte("key2")}
+	values := [][]byte{[]byte("value1")}
+
+	wo := NewWriteOptions()
+	defer wo.Close()
+
+	err = db.PutMany(wo, keys, values)
+	if err == nil {
+		t.Fatalf("missing error for PutMany mismatched key/values")
+	}
+
+	ro := NewReadOptions()
+	defer ro.Close()
+
+	for i := 0; i < 2; i++ {
+		v, err := db.Get(ro, keys[i])
+		if err != nil {
+			t.Fatalf("error getting key [%s]: %v", keys[i], err)
+		}
+
+		if v != nil {
+			t.Fatalf("value for key [%s] was not nil: [%s]", keys[i], v)
+		}
+	}
+}
+
 func BenchmarkDBGets(b *testing.B) {
 	b.Run("multiple-Get()s", func(b *testing.B) { benchmarkDBGets(b, false) })
 	b.Run("one-GetMany()", func(b *testing.B) { benchmarkDBGets(b, true) })
