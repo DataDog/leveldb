@@ -178,8 +178,6 @@ func (db *DB) Put(wo *WriteOptions, key, value []byte) error {
 //
 // Under the hood, this creates a write batch, adds the key/values to it and then writes it to the db.  This avoids
 // multiple cgo calls if you want to add a lot of items to a write batch at once.
-//
-// The WriteOptions passed in can be reused by multiple calls to this and if the WriteOptions is left unchanged.
 func (db *DB) PutMany(wo *WriteOptions, keys, values [][]byte) error {
 	if db.closed {
 		panic(ErrDBClosed)
