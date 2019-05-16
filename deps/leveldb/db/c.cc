@@ -178,6 +178,25 @@ char* leveldb_put(
   return err;
 }
 
+char * leveldb_putmany(
+    leveldb_t* db,
+    const leveldb_writeoptions_t* options,
+    leveldb_keyvalue_t* items,
+    size_t len) {
+
+  leveldb_writebatch_t* b = leveldb_writebatch_create();
+
+  for (int i=0; i < len; i++) {
+    b->rep.Put(Slice(items[i].key, items[i].keylen), Slice(items[i].val, items[i].vallen));
+  }
+
+  char *err = leveldb_write(db, options, b);
+
+  leveldb_writebatch_destroy(b);
+
+  return err;
+}
+
 char* leveldb_delete(
     leveldb_t* db,
     const leveldb_writeoptions_t* options,
